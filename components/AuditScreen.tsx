@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { GameAuditLog } from '../types';
 import AuditTrailView from './AuditTrailView';
@@ -14,10 +15,13 @@ const AuditScreen: React.FC<AuditScreenProps> = ({ onBack }) => {
   const [selectedLog, setSelectedLog] = useState<GameAuditLog | null>(null);
 
   useEffect(() => {
-    const storedLogs = getGameLogs();
-    // Sort by date, newest first
-    storedLogs.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
-    setLogs(storedLogs);
+    const loadLogs = async () => {
+        const storedLogs = await getGameLogs();
+        // The service now sorts by date, but we can re-sort just in case.
+        storedLogs.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+        setLogs(storedLogs);
+    };
+    loadLogs();
   }, []);
 
   return (

@@ -1,16 +1,20 @@
-import initSqlJs from 'sql.js';
-import type { Database } from 'sql.js';
+// --- A NOTE ON THIS DATABASE IMPLEMENTATION ---
+// This file has been refactored to simulate a backend database connection.
+// The original sql.js + localStorage implementation was client-side only,
+// meaning it could not support multiple users on different devices.
+//
+// To build a truly deployable, multi-user application, you would need to
+// replace the placeholder logic in this file with actual API calls to a
+// backend server (e.g., using Node.js/Express) or a Backend-as-a-Service
+// like Firebase Firestore.
+//
+// The functions are now `async` to mimic the asynchronous nature of
+// network requests. The in-memory data (`mockDb`) is a temporary
+// placeholder to keep the application functional for demonstration.
+
 import { User, GameAuditLog, FilterPeriod, UserRole, WinningPattern } from '../types';
 
-const DB_STORAGE_KEY = 'bingo_sqlite_db_v2';
-
-let db: Database | null = null;
-let SQL: any = null; // To hold the sql.js module
-
 // --- Hashing Utility (Simple, for demonstration only) ---
-// NOTE FOR PRODUCTION: This is a simple, unsalted hash. For a real production
-// environment, a stronger, salted hashing algorithm like bcrypt or Argon2
-// should be used to protect user passwords.
 const simpleHash = async (text: string): Promise<string> => {
     const buffer = new TextEncoder().encode(text);
     const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
@@ -18,320 +22,175 @@ const simpleHash = async (text: string): Promise<string> => {
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 };
 
-// --- Database Persistence ---
-// NOTE FOR PRODUCTION: Storing the entire database in localStorage is not suitable
-// for a real production application. It has size limits, is unencrypted, can be
-// cleared by the user, and is not accessible server-side for auditing or backup.
-// A proper backend with a dedicated database (e.g., PostgreSQL, MySQL) is required.
-const persistDb = () => {
-    if (db) {
-        const data = db.export();
-        // Convert Uint8Array to a base64 string for localStorage
-        const base64 = btoa(String.fromCharCode.apply(null, Array.from(data)));
-        localStorage.setItem(DB_STORAGE_KEY, base64);
-    }
+// --- Mock In-Memory Database (Placeholder for a real backend database) ---
+let mockDb: {
+  users: (User & { password?: string })[];
+  gameLogs: GameAuditLog[];
+  settings: { [key: string]: string };
+} = {
+  users: [],
+  gameLogs: [],
+  settings: {
+    'winner_prize_percentage': '0.7',
+    'enabled_winning_patterns': JSON.stringify(Object.values(WinningPattern)),
+  },
 };
-
-const loadDbFromStorage = (): Uint8Array | null => {
-    const base64 = localStorage.getItem(DB_STORAGE_KEY);
-    if (base64) {
-        try {
-            // Convert base64 string back to Uint8Array
-            const binaryString = atob(base64);
-            const len = binaryString.length;
-            const bytes = new Uint8Array(len);
-            for (let i = 0; i < len; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
-            }
-            return bytes;
-        } catch (e) {
-            console.error("Failed to parse database from localStorage, creating a new one.", e);
-            localStorage.removeItem(DB_STORAGE_KEY);
-            return null;
-        }
-    }
-    return null;
-};
-
-// --- Schema and Seeding ---
-const createTables = () => {
-    if (!db) return;
-    db.exec(`
-        CREATE TABLE IF NOT EXISTS users (
-            id TEXT PRIMARY KEY,
-            name TEXT UNIQUE NOT NULL,
-            password TEXT NOT NULL,
-            role TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS game_logs (
-            gameId TEXT PRIMARY KEY,
-            startTime TEXT NOT NULL,
-            managerId TEXT NOT NULL,
-            managerName TEXT NOT NULL,
-            settings TEXT NOT NULL, -- JSON string
-            players TEXT NOT NULL, -- JSON string
-            calledNumbersSequence TEXT NOT NULL, -- JSON string
-            winner TEXT -- JSON string or NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS app_settings (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL
-        );
-    `);
-};
-
-const seedData = async () => {
-    if (!db) return;
-    // Seed users
-    const userRes = db.exec("SELECT COUNT(*) FROM users");
-    const userCount = userRes[0].values[0][0] as number;
-
-    if (userCount === 0) {
-        console.log("Database is empty, seeding initial users...");
-        const users = [
-            { name: 'superadmin', role: 'super_admin', pass: 'superadmin123' },
-            { name: 'admin', role: 'admin', pass: 'admin123' },
-            { name: 'manager1', role: 'manager', pass: 'pass123' },
-            { name: 'manager2', role: 'manager', pass: 'pass123' },
-        ];
-
-        for (const [index, user] of users.entries()) {
-            const hashedPassword = await simpleHash(user.pass);
-            db.run(
-                "INSERT INTO users (id, name, password, role) VALUES (?, ?, ?, ?)",
-                [`user-${Date.now()}-${index}`, user.name, hashedPassword, user.role]
-            );
-        }
-        console.log("Users seeded successfully.");
-    }
-    
-    // Seed settings
-    const settingRes = db.exec("SELECT COUNT(*) FROM app_settings WHERE key = 'winner_prize_percentage'");
-    const settingCount = settingRes[0].values.length > 0 ? (settingRes[0].values[0][0] as number) : 0;
-    if (settingCount === 0) {
-        console.log("Seeding initial app settings...");
-        db.run("INSERT INTO app_settings (key, value) VALUES (?, ?)", ['winner_prize_percentage', '0.7']);
-    }
-
-    const patternsSettingRes = db.exec("SELECT COUNT(*) FROM app_settings WHERE key = 'enabled_winning_patterns'");
-    const patternsSettingCount = patternsSettingRes[0].values.length > 0 ? (patternsSettingRes[0].values[0][0] as number) : 0;
-    if (patternsSettingCount === 0) {
-        console.log("Seeding initial winning patterns setting...");
-        db.run("INSERT INTO app_settings (key, value) VALUES (?, ?)", ['enabled_winning_patterns', JSON.stringify(Object.values(WinningPattern))]);
-    }
-};
+let isDbInitialized = false;
 
 // --- Public API ---
+
+/**
+ * In a real backend scenario, this would not be needed on the client.
+ * Here, it simulates seeding the initial data into our mock database.
+ */
 export const initializeDb = async () => {
-    if (db) return; // Avoid re-initialization
+    if (isDbInitialized) return;
 
-    try {
-        SQL = await initSqlJs({
-             locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${file}`
+    console.log("Simulating connection to backend and seeding initial data...");
+
+    const usersToSeed = [
+        { name: 'superadmin', role: 'super_admin', pass: 'superadmin123' },
+        { name: 'admin', role: 'admin', pass: 'admin123' },
+        { name: 'manager1', role: 'manager', pass: 'pass123' },
+        { name: 'manager2', role: 'manager', pass: 'pass123' },
+    ];
+    
+    for (const [index, user] of usersToSeed.entries()) {
+        const hashedPassword = await simpleHash(user.pass);
+        mockDb.users.push({
+            id: `user-${Date.now()}-${index}`,
+            name: user.name,
+            password: hashedPassword,
+            role: user.role as UserRole,
         });
-
-        const dbData = loadDbFromStorage();
-        if (dbData) {
-            console.log("Loading existing database from storage.");
-            db = new SQL.Database(dbData);
-        } else {
-            console.log("Creating new SQLite database.");
-            db = new SQL.Database();
-        }
-
-        createTables();
-        await seedData();
-        persistDb(); // Persist the DB state after setup
-    } catch (e) {
-        console.error("Fatal error initializing SQLite database:", e);
     }
+
+    isDbInitialized = true;
+    console.log("Mock database initialized and seeded.");
+    return Promise.resolve();
 };
 
-export const getUsers = (role?: UserRole): User[] => {
-    if (!db) return [];
-    try {
-        let query = "SELECT id, name, role FROM users";
-        const params: string[] = [];
-        if (role) {
-            query += " WHERE role = ?";
-            params.push(role);
-        }
-        const stmt = db.prepare(query);
-        stmt.bind(params);
-        const users: User[] = [];
-        while (stmt.step()) {
-            users.push(stmt.getAsObject() as unknown as User);
-        }
-        stmt.free();
-        return users;
-    } catch (e) {
-        console.error("Failed to get users from DB:", e);
-        return [];
+/**
+ * Fetches users from the database.
+ * REAL-WORLD: This would be a GET request to an endpoint like /api/users.
+ */
+export const getUsers = async (role?: UserRole): Promise<User[]> => {
+    console.log(`Simulating GET /api/users?role=${role || 'all'}`);
+    await initializeDb(); // Ensure DB is ready
+    let filteredUsers = mockDb.users;
+    if (role) {
+        filteredUsers = mockDb.users.filter(u => u.role === role);
     }
+    // Return users without password hashes
+    return Promise.resolve(filteredUsers.map(({ password, ...user }) => user));
 };
 
+/**
+ * Authenticates a user against the database.
+ * REAL-WORLD: This would be a POST request to /api/login with name and password.
+ */
 export const authenticateUser = async (name: string, passwordAttempt: string): Promise<User | null> => {
-    if (!db) return null;
-    try {
-        const stmt = db.prepare("SELECT id, name, role, password FROM users WHERE name = :name");
-        stmt.bind({ ':name': name });
-        
-        if (stmt.step()) {
-            const userRecord = stmt.getAsObject() as unknown as User & { password?: string };
-            const hashedAttempt = await simpleHash(passwordAttempt);
-
-            if (userRecord.password && hashedAttempt === userRecord.password) {
-                delete userRecord.password; // Don't send password hash to the app state
-                stmt.free();
-                return userRecord;
-            }
+    console.log(`Simulating POST /api/login for user: ${name}`);
+    await initializeDb(); // Ensure DB is ready
+    
+    const userRecord = mockDb.users.find(u => u.name === name);
+    if (userRecord && userRecord.password) {
+        const hashedAttempt = await simpleHash(passwordAttempt);
+        if (hashedAttempt === userRecord.password) {
+            const { password, ...userToReturn } = userRecord;
+            return Promise.resolve(userToReturn);
         }
-        stmt.free();
-        return null;
-    } catch (e) {
-        console.error("DB authentication failed:", e);
-        return null;
     }
+    return Promise.resolve(null);
 };
 
-export const getGameLogs = (filters: { period?: FilterPeriod; managerId?: string } = {}): GameAuditLog[] => {
-    if (!db) return [];
+/**
+ * Retrieves game logs, optionally filtered.
+ * REAL-WORLD: This would be a GET request to /api/gamelogs with filter query params.
+ */
+export const getGameLogs = async (filters: { period?: FilterPeriod; managerId?: string } = {}): Promise<GameAuditLog[]> => {
+    console.log(`Simulating GET /api/gamelogs with filters:`, filters);
+    await initializeDb(); // Ensure DB is ready
+    
+    let logs = [...mockDb.gameLogs];
 
-    let query = "SELECT * FROM game_logs";
-    const whereClauses: string[] = [];
-    const params: (string | number)[] = [];
-
-    // Filter by period
     if (filters.period && filters.period !== 'all') {
         const now = new Date();
         const daysToFilter = filters.period === '7d' ? 7 : 30;
         const filterDate = new Date();
         filterDate.setDate(now.getDate() - daysToFilter);
-        whereClauses.push("startTime >= ?");
-        params.push(filterDate.toISOString());
+        logs = logs.filter(log => new Date(log.startTime) >= filterDate);
     }
 
-    // Filter by manager
     if (filters.managerId && filters.managerId !== 'all') {
-        whereClauses.push("managerId = ?");
-        params.push(filters.managerId);
+        logs = logs.filter(log => log.managerId === filters.managerId);
     }
     
-    if (whereClauses.length > 0) {
-        query += " WHERE " + whereClauses.join(" AND ");
-    }
-    
-    query += " ORDER BY startTime DESC";
-
-    try {
-        const stmt = db.prepare(query);
-        stmt.bind(params);
-        
-        const logs: GameAuditLog[] = [];
-        while (stmt.step()) {
-            const row = stmt.getAsObject();
-            try {
-                logs.push({
-                    gameId: row.gameId as string,
-                    startTime: row.startTime as string,
-                    managerId: row.managerId as string,
-                    managerName: row.managerName as string,
-                    settings: JSON.parse(row.settings as string),
-                    players: JSON.parse(row.players as string),
-                    calledNumbersSequence: JSON.parse(row.calledNumbersSequence as string),
-                    winner: row.winner ? JSON.parse(row.winner as string) : null
-                });
-            } catch (jsonError) {
-                console.error(`Failed to parse JSON for log ${row.gameId}:`, jsonError);
-            }
-        }
-        stmt.free();
-        return logs;
-    } catch (e) {
-        console.error("Failed to load audit logs from DB with filters:", e);
-        return [];
-    }
+    logs.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+    return Promise.resolve(logs);
 };
 
-export const saveGameLog = (log: GameAuditLog) => {
-    if (!db) return;
-    try {
-        db.run("INSERT INTO game_logs VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [
-            log.gameId,
-            log.startTime,
-            log.managerId,
-            log.managerName,
-            JSON.stringify(log.settings),
-            JSON.stringify(log.players),
-            JSON.stringify(log.calledNumbersSequence),
-            log.winner ? JSON.stringify(log.winner) : null
-        ]);
-        persistDb(); // Save database state after writing new log
-    } catch (e) {
-        console.error("Failed to save audit log to DB:", e);
-    }
+/**
+ * Saves a completed game log to the database.
+ * REAL-WORLD: This would be a POST request to /api/gamelogs.
+ */
+export const saveGameLog = async (log: GameAuditLog): Promise<void> => {
+    console.log(`Simulating POST /api/gamelogs for gameId: ${log.gameId}`);
+    await initializeDb();
+    mockDb.gameLogs.push(log);
+    return Promise.resolve();
 };
 
-// --- New/Updated Admin Functions ---
-
-export const getSetting = (key: string): string | null => {
-    if (!db) return null;
-    try {
-        const stmt = db.prepare("SELECT value FROM app_settings WHERE key = ?");
-        stmt.bind([key]);
-        const value = stmt.step() ? stmt.get()[0] as string : null;
-        stmt.free();
-        return value;
-    } catch (e) {
-        console.error(`Failed to get setting '${key}':`, e);
-        return null;
-    }
+/**
+ * Retrieves a specific setting value.
+ * REAL-WORLD: This would be a GET request to /api/settings/:key.
+ */
+export const getSetting = async (key: string): Promise<string | null> => {
+    console.log(`Simulating GET /api/settings/${key}`);
+    await initializeDb();
+    return Promise.resolve(mockDb.settings[key] || null);
 };
 
-export const setSetting = (key: string, value: string) => {
-    if (!db) return;
-    try {
-        // Use INSERT OR REPLACE to handle both creation and update
-        db.run("INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)", [key, value]);
-        persistDb();
-    } catch (e) {
-        console.error(`Failed to set setting '${key}':`, e);
-    }
+/**
+ * Sets a specific setting value.
+ * REAL-WORLD: This would be a PUT or POST request to /api/settings.
+ */
+export const setSetting = async (key: string, value: string): Promise<void> => {
+    console.log(`Simulating POST /api/settings with {${key}: ${value}}`);
+    await initializeDb();
+    mockDb.settings[key] = value;
+    return Promise.resolve();
 };
 
+/**
+ * Creates a new user (manager or admin).
+ * REAL-WORLD: This would be a POST request to /api/users.
+ */
 export const createUser = async (name: string, passwordAttempt: string, role: 'manager' | 'admin'): Promise<{ success: boolean; message: string }> => {
-    if (!db) return { success: false, message: 'Database not initialized.' };
+    console.log(`Simulating POST /api/users to create ${role}: ${name}`);
+    await initializeDb();
 
-    try {
-        // Check if user exists
-        const checkStmt = db.prepare("SELECT id FROM users WHERE name = ?");
-        checkStmt.bind([name]);
-        const userExists = checkStmt.step();
-        checkStmt.free();
-        if (userExists) {
-            return { success: false, message: 'Username already exists.' };
-        }
-
-        const hashedPassword = await simpleHash(passwordAttempt);
-        const newId = `user-${Date.now()}`;
-        
-        db.run(
-            "INSERT INTO users (id, name, password, role) VALUES (?, ?, ?, ?)",
-            [newId, name, hashedPassword, role]
-        );
-        
-        persistDb();
-        return { success: true, message: `User '${name}' created successfully as ${role}.` };
-    } catch (e) {
-        console.error("Failed to create user:", e);
-        return { success: false, message: 'An internal error occurred.' };
+    if (mockDb.users.some(u => u.name === name)) {
+        return Promise.resolve({ success: false, message: 'Username already exists.' });
     }
+
+    const hashedPassword = await simpleHash(passwordAttempt);
+    const newUser: User & { password?: string } = {
+        id: `user-${Date.now()}`,
+        name,
+        password: hashedPassword,
+        role,
+    };
+    mockDb.users.push(newUser);
+    
+    return Promise.resolve({ success: true, message: `User '${name}' created successfully as ${role}.` });
 };
 
-export const getEnabledWinningPatterns = (): WinningPattern[] => {
-    const patternsJson = getSetting('enabled_winning_patterns');
+/**
+ * Gets the list of enabled winning patterns from settings.
+ */
+export const getEnabledWinningPatterns = async (): Promise<WinningPattern[]> => {
+    const patternsJson = await getSetting('enabled_winning_patterns');
     if (patternsJson) {
         try {
             const patterns = JSON.parse(patternsJson);
@@ -342,32 +201,29 @@ export const getEnabledWinningPatterns = (): WinningPattern[] => {
             console.error("Failed to parse enabled_winning_patterns setting:", e);
         }
     }
-    // Fallback to all patterns if setting is missing or corrupt
     return Object.values(WinningPattern);
 };
 
-export const clearGameLogs = (olderThanDays?: number): { success: boolean; message: string } => {
-    if (!db) return { success: false, message: "Database not initialized." };
-    try {
-        let query = "DELETE FROM game_logs";
-        const params: any[] = [];
-        if (olderThanDays) {
-            const date = new Date();
-            date.setDate(date.getDate() - olderThanDays);
-            query += ` WHERE startTime < ?`;
-            params.push(date.toISOString());
-        }
-        const stmt = db.prepare(query);
-        stmt.run(params);
-        stmt.free();
-        persistDb();
-        const message = olderThanDays 
-            ? `Successfully cleared game logs older than ${olderThanDays} days.`
-            : 'Successfully cleared all game logs.';
-        return { success: true, message };
-    } catch (e) {
-        const error = e as Error;
-        console.error("Failed to clear game logs:", error);
-        return { success: false, message: `An error occurred while clearing logs: ${error.message}` };
+/**
+ * Clears game logs from the database.
+ * REAL-WORLD: This would be a DELETE request to /api/gamelogs.
+ */
+export const clearGameLogs = async (olderThanDays?: number): Promise<{ success: boolean; message: string }> => {
+    console.log(`Simulating DELETE /api/gamelogs older than ${olderThanDays || 'all'} days`);
+    await initializeDb();
+    
+    const originalCount = mockDb.gameLogs.length;
+    if (olderThanDays) {
+        const date = new Date();
+        date.setDate(date.getDate() - olderThanDays);
+        mockDb.gameLogs = mockDb.gameLogs.filter(log => new Date(log.startTime) >= date);
+    } else {
+        mockDb.gameLogs = [];
     }
+    const removedCount = originalCount - mockDb.gameLogs.length;
+
+    const message = olderThanDays 
+        ? `Successfully cleared ${removedCount} game logs older than ${olderThanDays} days.`
+        : `Successfully cleared all ${removedCount} game logs.`;
+    return Promise.resolve({ success: true, message });
 };

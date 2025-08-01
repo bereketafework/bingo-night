@@ -38,13 +38,13 @@ const SuperAdminPanel: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
   const managers = useMemo(() => allUsers.filter(u => u.role === 'manager'), [allUsers]);
   const admins = useMemo(() => allUsers.filter(u => u.role === 'admin'), [allUsers]);
 
-  const fetchData = () => {
-    setAllUsers(getUsers());
-    const storedPercentage = getSetting('winner_prize_percentage');
+  const fetchData = async () => {
+    setAllUsers(await getUsers());
+    const storedPercentage = await getSetting('winner_prize_percentage');
     if (storedPercentage) {
         setPrizePercentage(parseFloat(storedPercentage) * 100);
     }
-    setEnabledPatterns(new Set(getEnabledWinningPatterns()));
+    setEnabledPatterns(new Set(await getEnabledWinningPatterns()));
   };
 
   useEffect(() => {
@@ -53,8 +53,8 @@ const SuperAdminPanel: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
 
   useEffect(() => {
     setIsLoading(true);
-    const timer = setTimeout(() => {
-      const filteredLogs = getGameLogs({ period: filterPeriod, managerId: filterManager });
+    const timer = setTimeout(async () => {
+      const filteredLogs = await getGameLogs({ period: filterPeriod, managerId: filterManager });
       setLogs(filteredLogs);
       setIsLoading(false);
     }, 100);
@@ -81,12 +81,12 @@ const SuperAdminPanel: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
     if (result.success) {
         setNewUserName('');
         setNewUserPassword('');
-        fetchData(); // Refresh user lists
+        await fetchData(); // Refresh user lists
         setTimeout(() => setCreationStatus(null), 4000);
     }
   };
 
-  const handleSaveSettings = (e: React.FormEvent) => {
+  const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     setSettingsStatus(null);
     const value = prizePercentage / 100;
@@ -94,7 +94,7 @@ const SuperAdminPanel: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
         setSettingsStatus({ type: 'error', message: 'Percentage must be between 0 and 100.' });
         return;
     }
-    setSetting('winner_prize_percentage', value.toString());
+    await setSetting('winner_prize_percentage', value.toString());
     setSettingsStatus({ type: 'success', message: 'Settings saved successfully.' });
     setTimeout(() => setSettingsStatus(null), 3000);
   };
@@ -111,23 +111,23 @@ const SuperAdminPanel: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
     });
   };
   
-  const handleSavePatterns = () => {
-    setSetting('enabled_winning_patterns', JSON.stringify(Array.from(enabledPatterns)));
+  const handleSavePatterns = async () => {
+    await setSetting('enabled_winning_patterns', JSON.stringify(Array.from(enabledPatterns)));
     setPatternsStatus({ type: 'success', message: 'Winning patterns updated successfully.' });
     setTimeout(() => setPatternsStatus(null), 3000);
   };
   
-  const handleClearLogs = (days?: number) => {
+  const handleClearLogs = async (days?: number) => {
     const confirmationText = days 
         ? `Are you sure you want to delete all game logs older than ${days} days? This cannot be undone.`
         : "Are you sure you want to delete ALL game logs? This action is permanent and cannot be undone.";
     
     if (window.confirm(confirmationText)) {
-        const result = clearGameLogs(days);
+        const result = await clearGameLogs(days);
         alert(result.message);
         if (result.success) {
             // Refresh logs view by re-triggering the useEffect
-            setLogs(getGameLogs({ period: filterPeriod, managerId: filterManager }));
+            setLogs(await getGameLogs({ period: filterPeriod, managerId: filterManager }));
         }
     }
   };

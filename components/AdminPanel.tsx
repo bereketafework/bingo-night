@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { GameAuditLog, User, FilterPeriod } from '../types';
 import { LogoutIcon, GamepadIcon, StakeIcon, PrizeIcon, UserPlusIcon, Cog6ToothIcon, ChartBarIcon } from './icons';
@@ -36,16 +37,15 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onLogout }) => {
   const [prizePercentage, setPrizePercentage] = useState<number>(70);
   const [settingsStatus, setSettingsStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
 
-  const fetchAdminData = () => {
-    const allUsers = getUsers();
-    setManagers(allUsers.filter(u => u.role === 'manager'));
-    const storedPercentage = getSetting('winner_prize_percentage');
-    if (storedPercentage) {
-        setPrizePercentage(parseFloat(storedPercentage) * 100);
-    }
-  };
-
   useEffect(() => {
+    const fetchAdminData = async () => {
+        const allUsers = await getUsers();
+        setManagers(allUsers.filter(u => u.role === 'manager'));
+        const storedPercentage = await getSetting('winner_prize_percentage');
+        if (storedPercentage) {
+            setPrizePercentage(parseFloat(storedPercentage) * 100);
+        }
+    };
     fetchAdminData();
   }, []);
 
@@ -53,8 +53,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onLogout }) => {
   useEffect(() => {
     setIsLoading(true);
     // Use a small timeout to allow the UI to show the loading state
-    const timer = setTimeout(() => {
-      const filteredLogs = getGameLogs({
+    const timer = setTimeout(async () => {
+      const filteredLogs = await getGameLogs({
           period: filterPeriod,
           managerId: filterManager
       });
@@ -87,12 +87,12 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onLogout }) => {
         setNewManagerName('');
         setNewManagerPassword('');
         // Refresh manager list
-        const allUsers = getUsers();
+        const allUsers = await getUsers();
         setManagers(allUsers.filter(u => u.role === 'manager'));
     }
   };
 
-  const handleSaveSettings = (e: React.FormEvent) => {
+  const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     setSettingsStatus(null);
     const value = prizePercentage / 100;
@@ -100,7 +100,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onLogout }) => {
         setSettingsStatus({ type: 'error', message: 'Percentage must be between 0 and 100.' });
         return;
     }
-    setSetting('winner_prize_percentage', value.toString());
+    await setSetting('winner_prize_percentage', value.toString());
     setSettingsStatus({ type: 'success', message: 'Settings saved successfully.' });
   };
 

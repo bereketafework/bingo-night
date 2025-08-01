@@ -75,20 +75,23 @@ const GameSetup: React.FC<GameSetupProps> = ({ manager, onStartGame, onLogout, o
   const [enabledPatterns, setEnabledPatterns] = useState<WinningPattern[]>([]);
 
   useEffect(() => {
-    const cards = Array.from({ length: 15 }, () => generateBingoCard());
-    setGeneratedCards(cards);
-    
-    const storedPercentage = getSetting('winner_prize_percentage');
-    if (storedPercentage) {
-        setPrizePercentage(parseFloat(storedPercentage));
-    }
-    
-    const patterns = getEnabledWinningPatterns();
-    setEnabledPatterns(patterns);
-    // If the currently selected pattern is not in the enabled list, default to the first enabled one.
-    if (!patterns.includes(lobbyConfig.pattern)) {
-        onConfigChange((c: any) => ({ ...c, pattern: patterns[0] || WINNING_PATTERNS[0] }));
-    }
+    const setup = async () => {
+        const cards = Array.from({ length: 15 }, () => generateBingoCard());
+        setGeneratedCards(cards);
+        
+        const storedPercentage = await getSetting('winner_prize_percentage');
+        if (storedPercentage) {
+            setPrizePercentage(parseFloat(storedPercentage));
+        }
+        
+        const patterns = await getEnabledWinningPatterns();
+        setEnabledPatterns(patterns);
+        // If the currently selected pattern is not in the enabled list, default to the first enabled one.
+        if (!patterns.includes(lobbyConfig.pattern)) {
+            onConfigChange((c: any) => ({ ...c, pattern: patterns[0] || WINNING_PATTERNS[0] }));
+        }
+    };
+    setup();
   }, []);
   
   const managerCardsCount = selectedCardIndices.length;
@@ -262,7 +265,7 @@ const GameSetup: React.FC<GameSetupProps> = ({ manager, onStartGame, onLogout, o
       {/* Card Selection */}
       <div className="mt-8">
         <div className="flex justify-between items-center">
-          <label className="text-xl font-semibold text-white font-inter">Your Cards ({selectedCardIndices.length} selected)</label>
+          <label className="text-xl font-semibold text-white font-inter">Cards ({selectedCardIndices.length} selected)</label>
           <button onClick={() => setShowCardSelection(!showCardSelection)} className="flex items-center gap-1 px-3 py-1.5 text-sm font-semibold text-gray-300 bg-gray-700/80 rounded-lg hover:bg-gray-700 transition-colors" aria-expanded={showCardSelection} aria-controls="card-selection-grid">
               {showCardSelection ? 'Hide' : 'Show'}
               {showCardSelection ? <ChevronUpIcon className="w-4 h-4" /> : <ChevronDownIcon className="w-4 h-4" />}

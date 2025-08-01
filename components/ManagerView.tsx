@@ -182,7 +182,7 @@ const ManagerView: React.FC<ManagerViewProps> = ({ manager, onLogout }) => {
 
   // --- Game Logic functions (lifted from GameScreen) ---
 
-  const setWinnerAndEndGame = useCallback((winningPlayer: Player, winningCells: [number, number][]) => {
+  const setWinnerAndEndGame = useCallback(async (winningPlayer: Player, winningCells: [number, number][]) => {
       if (winner) return; // Prevent multiple winners
       
       const finalWinner = { ...winningPlayer, isWinner: true, winningCells };
@@ -194,10 +194,10 @@ const ManagerView: React.FC<ManagerViewProps> = ({ manager, onLogout }) => {
       );
       setPlayers(finalPlayersState);
       
-      setAuditLog(prev => {
-        if (!prev || !gameSettings) return null;
+      const currentAuditLog = auditLog;
+      if (currentAuditLog && gameSettings) {
         const finalLog: GameAuditLog = {
-          ...prev,
+          ...currentAuditLog,
           players: finalPlayersState.map(p => ({
             name: p.name,
             card: p.card,
@@ -210,11 +210,11 @@ const ManagerView: React.FC<ManagerViewProps> = ({ manager, onLogout }) => {
               winningNumber: currentNumber!
           }
         };
-        saveGameLog(finalLog);
+        setAuditLog(finalLog); // Update UI state
+        await saveGameLog(finalLog); // Save to backend
         broadcast({ type: 'WINNER_ANNOUNCED', payload: { winner: finalWinner, prize: gameSettings.prize, auditLog: finalLog } });
-        return finalLog;
-      });
-  }, [winner, players, gameSettings, currentNumber, broadcast]);
+      }
+  }, [winner, players, gameSettings, currentNumber, broadcast, auditLog]);
 
 
   const callNextNumber = useCallback(async () => {
