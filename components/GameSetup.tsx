@@ -244,7 +244,7 @@ const GameSetup: React.FC<GameSetupProps> = ({ manager, onStartGame, onLogout, o
                                 </div>
                                 <div className='space-y-2'>
                                     <h4 className='font-semibold text-white'>Players ({remotePlayers.length})</h4>
-                                    <div className='max-h-24 overflow-y-auto pr-2 space-y-1'>
+                                    <div className='max-h-48 overflow-y-auto pr-2 space-y-1'>
                                         {remotePlayers.length > 0 ? remotePlayers.map(p => (
                                             <div key={p.id} className="flex items-center gap-2 bg-gray-600/50 p-1.5 rounded-md">
                                                 <UserCircleIcon className="w-5 h-5 text-gray-400" />

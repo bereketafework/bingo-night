@@ -47,6 +47,7 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
     const [generatedCards, setGeneratedCards] = useState<BingoCard[]>([]);
     const [selectedCard, setSelectedCard] = useState<BingoCard | null>(null);
     const [selectedCardIndex, setSelectedCardIndex] = useState<number | null>(null);
+    const [indexOfLastUsed, setIndexOfLastUsed] = useState<number | null>(null);
 
     // Game state
     const [allPlayers, setAllPlayers] = useState<Player[]>([]);
@@ -74,8 +75,10 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
         
         if (lastUsedCard) {
             setGeneratedCards([lastUsedCard, ...newCards]);
+            setIndexOfLastUsed(0);
         } else {
             setGeneratedCards(newCards);
+            setIndexOfLastUsed(null);
         }
     };
 
@@ -201,8 +204,14 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
                  setStep('JOIN');
             });
         });
-        peer.on('error', (err) => {
-            setError(`Error: ${err.message}. The host ID might be invalid or the host has disconnected.`);
+        peer.on('error', (err: any) => {
+            let userMessage = `Error: ${err.message}. Please try again.`;
+            if (err.type === 'peer-unavailable') {
+                userMessage = "Could not connect to host. Please double-check the Game ID and ensure the host is waiting for players.";
+            } else if (err.type === 'network') {
+                userMessage = "Network error. Please check your internet connection and try again.";
+            }
+            setError(userMessage);
             setStep('JOIN');
         });
     };
@@ -272,7 +281,6 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
     );
     
     if (step === 'LOBBY') {
-        const lastUsedCardStr = localStorage.getItem('bingo_last_used_card');
         return (
             <div className="w-full max-w-4xl mx-auto p-4 sm:p-8 bg-gray-900/70 border border-gray-700/50 rounded-2xl shadow-2xl animate-fade-in">
                 <h1 className="text-3xl sm:text-4xl font-bold text-center text-white font-inter">Game Lobby</h1>
@@ -290,7 +298,7 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
                                     cardId={i} 
                                     isSelected={selectedCardIndex === i} 
                                     onClick={() => handleCardSelection(card, i)}
-                                    isLastUsed={i === 0 && !!lastUsedCardStr}
+                                    isLastUsed={i === indexOfLastUsed}
                                 />
                             ))}
                         </div>
@@ -305,7 +313,7 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
                     <div className="space-y-4">
                         <div className="bg-gray-800/50 p-4 rounded-lg">
                             <h3 className="text-lg font-semibold text-white flex items-center gap-2 mb-2"><UsersIcon className="w-6 h-6 text-amber-400" /> Players ({lobbyPlayers.length})</h3>
-                            <ul className="space-y-1 max-h-32 overflow-y-auto pr-2">{lobbyPlayers.map(p => <li key={p.id} className={`p-2 rounded text-sm sm:text-base ${p.name === playerName ? 'bg-amber-500/20 text-amber-300' : 'bg-gray-700/50 text-white'}`}>{p.name}</li>)}</ul>
+                            <ul className="space-y-1 max-h-40 overflow-y-auto pr-2">{lobbyPlayers.map(p => <li key={p.id} className={`p-2 rounded text-sm sm:text-base ${p.name === playerName ? 'bg-amber-500/20 text-amber-300' : 'bg-gray-700/50 text-white'}`}>{p.name}</li>)}</ul>
                         </div>
                         <div className="bg-gray-800/50 p-4 rounded-lg space-y-2">
                             <h3 className="text-lg font-semibold text-white mb-2">Game Info</h3>

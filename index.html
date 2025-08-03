@@ -47,6 +47,7 @@
         font-family: "Inter", sans-serif;
       }
       /* Custom scrollbar for a better dark mode experience */
+      /* For Webkit Browsers */
       ::-webkit-scrollbar {
         width: 8px;
         height: 8px;
@@ -60,6 +61,11 @@
       }
       ::-webkit-scrollbar-thumb:hover {
         background: #6b7280; /* bg-gray-500 */
+      }
+      /* For Firefox */
+      * {
+        scrollbar-width: thin;
+        scrollbar-color: #4b5563 #1f2937;
       }
 
       /* Custom Range Input */
