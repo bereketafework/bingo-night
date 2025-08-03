@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { WinningPattern, GameSettings, BingoCard, Language, User, Player as RemotePlayer } from '../types';
 import { WINNING_PATTERNS_CONFIG, WINNING_PATTERNS } from '../constants';
-import { GamepadIcon, SpeedIcon, LogoutIcon, UsersIcon, StakeIcon, PrizeIcon, StarIcon, CheckCircleIcon, AuditLogIcon, ChevronDownIcon, ChevronUpIcon, LanguageIcon, UserCircleIcon } from './icons';
+import { GamepadIcon, SpeedIcon, LogoutIcon, UsersIcon, StakeIcon, PrizeIcon, StarIcon, CheckCircleIcon, AuditLogIcon, ChevronDownIcon, ChevronUpIcon, LanguageIcon, UserCircleIcon, EyeIcon, EyeSlashIcon } from './icons';
 import { generateBingoCard } from '../services/gameLogic';
 import { BINGO_LETTERS } from '../constants';
 import { getSetting, getEnabledWinningPatterns } from '../services/db';
@@ -73,6 +73,7 @@ const GameSetup: React.FC<GameSetupProps> = ({ manager, onStartGame, onLogout, o
   const [showCardSelection, setShowCardSelection] = useState<boolean>(true);
   const [prizePercentage, setPrizePercentage] = useState<number>(0.7); // Default fallback
   const [enabledPatterns, setEnabledPatterns] = useState<WinningPattern[]>([]);
+  const [isGameIdVisible, setIsGameIdVisible] = useState<boolean>(true);
 
   useEffect(() => {
     const setup = async () => {
@@ -127,7 +128,8 @@ const GameSetup: React.FC<GameSetupProps> = ({ manager, onStartGame, onLogout, o
   ];
 
   const handleStart = () => {
-    if (stake < 1) return;
+    if (stake < 1 || enabledPatterns.length === 0 || totalPlayers < 2) return;
+
     const selectedCards = selectedCardIndices.map(index => ({
         card: generatedCards[index],
         id: `manager-card-${index + 1}`
@@ -226,7 +228,19 @@ const GameSetup: React.FC<GameSetupProps> = ({ manager, onStartGame, onLogout, o
                             <>
                                 <div className='text-center'>
                                     <p className="text-sm text-gray-400">Game ID (Share with players)</p>
-                                    <p className="text-lg font-bold text-amber-300 font-roboto-mono tracking-widest bg-gray-800 p-2 rounded-md">{gameId}</p>
+                                    <div className="inline-flex items-center justify-center gap-2 bg-gray-800 px-4 py-2 rounded-md">
+                                        <p className="text-2xl font-bold text-amber-300 font-roboto-mono tracking-widest">
+                                            {isGameIdVisible ? gameId : '****'}
+                                        </p>
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsGameIdVisible(!isGameIdVisible)}
+                                            className="p-1 text-gray-400 hover:text-white rounded-full transition-colors"
+                                            title={isGameIdVisible ? 'Hide Game ID' : 'Show Game ID'}
+                                        >
+                                            {isGameIdVisible ? <EyeSlashIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
+                                        </button>
+                                    </div>
                                 </div>
                                 <div className='space-y-2'>
                                     <h4 className='font-semibold text-white'>Players ({remotePlayers.length})</h4>
@@ -286,8 +300,8 @@ const GameSetup: React.FC<GameSetupProps> = ({ manager, onStartGame, onLogout, o
 
       <div className="mt-10">
         {isHosting ? (
-             <button onClick={handleStart} disabled={stake < 1 || enabledPatterns.length === 0} className="w-full py-3 text-lg sm:text-xl font-bold text-gray-900 bg-green-500 rounded-lg hover:bg-green-600 focus:outline-none focus:ring-4 focus:ring-green-500/50 transition-all duration-300 disabled:bg-gray-600 disabled:text-gray-400 disabled:cursor-not-allowed">
-                Start Game for All Players ({totalPlayers})
+             <button onClick={handleStart} disabled={stake < 1 || enabledPatterns.length === 0 || totalPlayers < 2} className="w-full py-3 text-lg sm:text-xl font-bold text-gray-900 bg-green-500 rounded-lg hover:bg-green-600 focus:outline-none focus:ring-4 focus:ring-green-500/50 transition-all duration-300 disabled:bg-gray-600 disabled:text-gray-400 disabled:cursor-not-allowed">
+                {totalPlayers < 2 ? 'At least 2 cards are required to start' : `Start Game for All Players (${totalPlayers})`}
             </button>
         ) : (
             <button onClick={onHostGame} disabled={stake < 1} className="w-full py-3 text-lg sm:text-xl font-bold text-gray-900 bg-blue-500 rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-4 focus:ring-blue-500/50 transition-all duration-300 disabled:bg-gray-600 disabled:text-gray-400 disabled:cursor-not-allowed">

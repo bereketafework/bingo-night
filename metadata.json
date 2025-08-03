@@ -1,19 +1,6 @@
 {
-  "name": "Bingo Night Game",
+  "name": "Bingo Night",
   "description": "A modern, real-time web-based bingo game for small casinos. Developed by Bereket A. Features unique card generation, random number calling, multiple winning patterns, and a simulated player chat for an engaging experience.",
   "requestFramePermissions": [],
   "prompt": ""
-}
-{
-  "version": "1.0.0",
-  "author": "Bereket A.",
-  "license": "MIT",
-  "keywords": ["bingo", "game", "web", "casino", "real-time"],
-  "dependencies": {
-    "express": "^4.17.1",
-    "socket.io": "^4.0.0"
-  },
-  "scripts": {
-    "start": "node server.js"
-  }
 }

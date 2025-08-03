@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import GameSetup from './GameSetup';
 import GameScreen from './GameScreen';
@@ -157,7 +158,7 @@ const ManagerView: React.FC<ManagerViewProps> = ({ manager, onLogout }) => {
   }, [players, lobbyConfig, broadcast, status]);
 
   const handleHostGame = () => {
-    const newGameId = Math.floor(100000000000 + Math.random() * 900000000000).toString();
+    const newGameId = Math.floor(1000 + Math.random() * 9000).toString();
     const newPeer = new Peer(newGameId);
     setPeer(newPeer);
     
