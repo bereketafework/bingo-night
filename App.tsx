@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import LoginScreen from './components/LoginScreen';
 import AdminPanel from './components/AdminPanel';
@@ -10,11 +11,17 @@ import { initializeDb } from './services/db';
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isDbReady, setIsDbReady] = useState(false);
+  const [dbError, setDbError] = useState<string | null>(null);
   const [appMode, setAppMode] = useState<'manager' | 'player'>('player');
 
   useEffect(() => {
     // Initialize DB once on app load for seamless switching between modes.
-    initializeDb().then(() => setIsDbReady(true)).catch(console.error);
+    initializeDb()
+      .then(() => setIsDbReady(true))
+      .catch((err) => {
+        console.error("Database initialization failed:", err);
+        setDbError("Failed to initialize application data. Please refresh the page to try again.");
+      });
   }, []);
 
   const handleLogin = (user: User) => {
@@ -27,6 +34,10 @@ const App: React.FC = () => {
   };
 
   const renderContent = () => {
+    if (dbError) {
+      return <div className="flex items-center justify-center min-h-screen text-lg text-red-400">{dbError}</div>;
+    }
+
     if (!isDbReady) {
       return <div className="flex items-center justify-center min-h-screen text-lg text-gray-400">Initializing...</div>;
     }

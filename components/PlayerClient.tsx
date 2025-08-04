@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Peer, { DataConnection } from 'peerjs';
 import { GameSettings, BingoCard, NetworkMessage, Player, GameAuditLog } from '../types';
@@ -173,7 +174,7 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
         }
     }, [allPlayers, step, lobbySettings.pattern, winner, canCallBingo]);
 
-    const connectToHost = (e: React.FormEvent) => {
+    const connectToHost = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!playerName.trim() || !hostId.trim()) {
             setError('Please enter your name and the Game ID.');
@@ -182,38 +183,67 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
         setError('');
         setStatusMessage('Initializing connection...');
 
-        const peer = new Peer();
-        peerRef.current = peer;
-
-        peer.on('open', (id) => {
-            setStatusMessage(`Connecting to host: ${hostId}...`);
-            const conn = peer.connect(hostId, { reliable: true });
-            connRef.current = conn;
-
-            conn.on('open', () => {
-                setStatusMessage('Connection successful! Joining lobby...');
-                conn.send({ type: 'PLAYER_JOIN_REQUEST', payload: { name: playerName } });
-            });
-            conn.on('data', (data: any) => handleMessageRef.current?.(data as NetworkMessage));
-            conn.on('close', () => {
-                setError('Connection to host lost.');
-                setStep('JOIN');
-            });
-            conn.on('error', (err) => {
-                 setError(`Connection error: ${err.message}`);
-                 setStep('JOIN');
-            });
-        });
-        peer.on('error', (err: any) => {
-            let userMessage = `Error: ${err.message}. Please try again.`;
-            if (err.type === 'peer-unavailable') {
-                userMessage = "Could not connect to host. Please double-check the Game ID and ensure the host is waiting for players.";
-            } else if (err.type === 'network') {
-                userMessage = "Network error. Please check your internet connection and try again.";
+        try {
+            if (peerRef.current) {
+                peerRef.current.destroy();
             }
-            setError(userMessage);
+
+            const peer = new Peer();
+            peerRef.current = peer;
+
+            peer.on('open', (id) => {
+                setStatusMessage(`Connecting to host: ${hostId}...`);
+                const conn = peer.connect(hostId, { reliable: true });
+                connRef.current = conn;
+
+                conn.on('open', () => {
+                    setStatusMessage('Connection successful! Joining lobby...');
+                    conn.send({ type: 'PLAYER_JOIN_REQUEST', payload: { name: playerName } });
+                });
+                conn.on('data', (data: any) => handleMessageRef.current?.(data as NetworkMessage));
+                conn.on('close', () => {
+                    setError('Connection to host lost. Please try joining again.');
+                    setStep('JOIN');
+                });
+                conn.on('error', (err) => {
+                     setError(`Connection error: ${err.message}`);
+                     setStep('JOIN');
+                });
+            });
+
+            peer.on('error', (err: any) => {
+                let userMessage = `An unexpected error occurred: ${err.message}.`;
+                switch (err.type) {
+                    case 'browser-incompatible':
+                        userMessage = 'Your browser is not compatible. Please use a modern browser like Chrome or Firefox.';
+                        break;
+                    case 'disconnected':
+                        userMessage = 'Disconnected from the signaling server. Please check your internet connection.';
+                        break;
+                    case 'network':
+                        userMessage = 'Network error. Could not reach the host. Check your internet and the Game ID.';
+                        break;
+                    case 'peer-unavailable':
+                        userMessage = "Could not connect to host. Please double-check the Game ID and ensure the host is ready for players.";
+                        break;
+                    case 'server-error':
+                        userMessage = 'Unable to connect to the server. Please try again later.';
+                        break;
+                    case 'webrtc':
+                        userMessage = 'WebRTC is not supported by your browser. Please try another browser.';
+                        break;
+                    default:
+                        userMessage = `Connection failed: ${err.message}. Please try again.`;
+                }
+                setError(userMessage);
+                setStep('JOIN');
+                peer.destroy();
+                peerRef.current = null;
+            });
+        } catch (err: any) {
+            setError(`An unexpected error occurred during setup: ${err.message}`);
             setStep('JOIN');
-        });
+        }
     };
     
     const handleCardSelection = (card: BingoCard, index: number) => {
@@ -245,14 +275,20 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
         }
 
         peerRef.current?.destroy();
+        peerRef.current = null;
+        connRef.current = null;
+
         setStep('JOIN');
         setHostId('');
         setError('');
+        setStatusMessage('Connecting to host...');
         
-        // Reset all states
+        // Reset all game states
         setLobbyPlayers([]);
         setLobbySettings({});
+        
         generateAndSetCards();
+
         setSelectedCard(null);
         setSelectedCardIndex(null);
         setPlayer(null);
@@ -263,7 +299,7 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
         setWinner(null);
         setPrize(0);
         setAuditLog(null);
-    }
+    };
 
     // --- RENDER LOGIC ---
     if (step === 'JOIN') return (
@@ -291,7 +327,7 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
                         <p className="text-gray-400 text-center mb-4 text-sm sm:text-base">{selectedCard ? 'You can change your selection by picking another card.' : 'Pick one card to play with.'}</p>
                         
                         <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-4">
-                            {generatedCards.map((card, i) => (
+                            {generatedCards.length > 0 ? generatedCards.map((card, i) => (
                                 <SelectableBingoCard 
                                     key={i} 
                                     card={card} 
@@ -300,7 +336,11 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
                                     onClick={() => handleCardSelection(card, i)}
                                     isLastUsed={i === indexOfLastUsed}
                                 />
-                            ))}
+                            )) : (
+                                <div className="col-span-full text-center text-gray-400 p-8">
+                                    <p>Generating new bingo cards...</p>
+                                </div>
+                            )}
                         </div>
 
                         {!selectedCard && (
