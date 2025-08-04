@@ -64,10 +64,10 @@ export interface Database {
           start_time: string;
           manager_id: string;
           manager_name: string;
-          settings: GameAuditLog['settings'];
-          players: AuditedPlayer[];
-          called_numbers_sequence: number[];
-          winner: GameAuditLog['winner'];
+          settings: Json;
+          players: Json;
+          called_numbers_sequence: Json;
+          winner: Json | null;
         };
         Update: {
           id?: number;
@@ -208,7 +208,7 @@ export const getUsers = async (role?: UserRole): Promise<User[]> => {
         console.error('Error fetching users:', error);
         return [];
     }
-    return data;
+    return data as User[];
 };
 
 export const authenticateUser = async (name: string, passwordAttempt: string): Promise<User | null> => {
@@ -227,7 +227,7 @@ export const authenticateUser = async (name: string, passwordAttempt: string): P
         const hashedAttempt = await simpleHash(passwordAttempt);
         if (hashedAttempt === userRecord.password) {
             const { password, ...userToReturn } = userRecord;
-            return userToReturn;
+            return userToReturn as User;
         }
     }
     return null;
@@ -273,10 +273,10 @@ export const saveGameLog = async (log: GameAuditLog): Promise<void> => {
         start_time: log.startTime,
         manager_id: log.managerId,
         manager_name: log.managerName,
-        settings: log.settings,
-        players: log.players,
-        called_numbers_sequence: log.calledNumbersSequence,
-        winner: log.winner,
+        settings: log.settings as Json,
+        players: log.players as Json,
+        called_numbers_sequence: log.calledNumbersSequence as Json,
+        winner: log.winner as Json,
     };
     const { error } = await supabase.from('game_logs').insert(logToSave);
     if (error) console.error('Error saving game log:', error);
@@ -294,7 +294,7 @@ export const getSetting = async (key: string): Promise<string | null> => {
 export const setSetting = async (key: string, value: string): Promise<void> => {
     const { error } = await supabase
         .from('settings')
-        .upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+        .upsert({ key, value, updated_at: new Date().toISOString() });
     if (error) console.error(`Error setting ${key}:`, error);
 };
 

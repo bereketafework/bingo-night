@@ -37,10 +37,14 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
     const [playerName, setPlayerName] = useState('');
     const [hostId, setHostId] = useState('');
     const [error, setError] = useState('');
-    const [statusMessage, setStatusMessage] = useState('Connecting to host...');
+    const [statusMessage, setStatusMessage] = useState('Enter Game ID to join');
     
     const peerRef = useRef<Peer | null>(null);
     const connRef = useRef<DataConnection | null>(null);
+    const stepRef = useRef(step);
+    useEffect(() => {
+        stepRef.current = step;
+    }, [step]);
 
     // Lobby state
     const [lobbyPlayers, setLobbyPlayers] = useState<{id: string, name: string}[]>([]);
@@ -101,14 +105,14 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
                     setStep('LOBBY');
                     break;
                 case 'LOBBY_UPDATE':
-                    if (step === 'GAME') {
+                    if (stepRef.current === 'GAME') {
                         setAllPlayers(message.payload.players);
                     } else {
                         setLobbyPlayers(message.payload.players);
                     }
                     break;
                 case 'CONFIG_UPDATE':
-                    if (step === 'LOBBY') {
+                    if (stepRef.current === 'LOBBY') {
                         setLobbySettings(message.payload.settings);
                     }
                     break;
@@ -120,6 +124,8 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
                         setStep('GAME');
                     } else {
                         setError("You haven't selected a card! The game has started without you.");
+                        // Force a disconnect and return to JOIN screen.
+                        connRef.current?.close();
                     }
                     break;
                 case 'NUMBER_CALL': {
@@ -134,7 +140,7 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
                         prevPlayers.map(p => {
                             if (!p.card || p.card.length === 0 || p.disconnected) return p;
     
-                            const newMarkedCells = Array(5).fill(null).map(() => Array(5).fill(false));
+                            const newMarkedCells = Array.from({ length: 5 }, () => Array(5).fill(false));
                             p.card.forEach((row, rIdx) => {
                                 row.forEach((cell, cIdx) => {
                                     if (cell === 'FREE' || calledSet.has(cell as number)) {
@@ -160,7 +166,7 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
                     break;
             }
         };
-    }, [player, step]);
+    }, [player]);
 
     useEffect(() => {
         if (step === 'GAME' && !winner && lobbySettings.pattern) {
@@ -174,7 +180,7 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
         }
     }, [allPlayers, step, lobbySettings.pattern, winner, canCallBingo]);
 
-    const connectToHost = async (e: React.FormEvent) => {
+    const connectToHost = (e: React.FormEvent) => {
         e.preventDefault();
         if (!playerName.trim() || !hostId.trim()) {
             setError('Please enter your name and the Game ID.');
@@ -182,6 +188,17 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
         }
         setError('');
         setStatusMessage('Initializing connection...');
+
+        let connectionTimeoutId: number;
+
+        const cleanupAndReset = () => {
+            clearTimeout(connectionTimeoutId);
+            if (peerRef.current) {
+                peerRef.current.destroy();
+                peerRef.current = null;
+            }
+            connRef.current = null;
+        };
 
         try {
             if (peerRef.current) {
@@ -191,29 +208,51 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
             const peer = new Peer();
             peerRef.current = peer;
 
+            connectionTimeoutId = window.setTimeout(() => {
+                setError("Connection timed out. Please check the Game ID and your network. The host might be busy or the ID is incorrect.");
+                setStep('JOIN');
+                cleanupAndReset();
+            }, 15000); // 15-second timeout
+
             peer.on('open', (id) => {
                 setStatusMessage(`Connecting to host: ${hostId}...`);
-                const conn = peer.connect(hostId, { reliable: true });
+                
+                if (!/^\d{4}$/.test(hostId.trim())) {
+                    setError("Invalid Game ID. It must be a 4-digit number.");
+                    setStep('JOIN');
+                    cleanupAndReset();
+                    return;
+                }
+
+                const conn = peer.connect(hostId.trim(), { reliable: true });
                 connRef.current = conn;
 
                 conn.on('open', () => {
+                    clearTimeout(connectionTimeoutId); // Success! Clear the watchdog.
                     setStatusMessage('Connection successful! Joining lobby...');
                     conn.send({ type: 'PLAYER_JOIN_REQUEST', payload: { name: playerName } });
                 });
+
                 conn.on('data', (data: any) => handleMessageRef.current?.(data as NetworkMessage));
+
                 conn.on('close', () => {
-                    setError('Connection to host lost. Please try joining again.');
-                    setStep('JOIN');
+                    if (stepRef.current === 'LOBBY' || stepRef.current === 'GAME') {
+                        setError('Connection to host has been lost.');
+                        setStep('JOIN');
+                    }
+                    cleanupAndReset();
                 });
+
                 conn.on('error', (err) => {
-                     setError(`Connection error: ${err.message}`);
+                     setError(`A connection error occurred: ${err.message}`);
                      setStep('JOIN');
+                     cleanupAndReset();
                 });
             });
 
             peer.on('error', (err: any) => {
                 let userMessage = `An unexpected error occurred: ${err.message}.`;
-                switch (err.type) {
+                 switch (err.type) {
                     case 'browser-incompatible':
                         userMessage = 'Your browser is not compatible. Please use a modern browser like Chrome or Firefox.';
                         break;
@@ -237,12 +276,13 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
                 }
                 setError(userMessage);
                 setStep('JOIN');
-                peer.destroy();
-                peerRef.current = null;
+                cleanupAndReset();
             });
+
         } catch (err: any) {
             setError(`An unexpected error occurred during setup: ${err.message}`);
             setStep('JOIN');
+            cleanupAndReset();
         }
     };
     
@@ -274,16 +314,17 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
             localStorage.setItem('bingo_last_used_card', JSON.stringify(selectedCard));
         }
 
-        peerRef.current?.destroy();
+        if (peerRef.current) {
+            peerRef.current.destroy();
+        }
         peerRef.current = null;
         connRef.current = null;
 
         setStep('JOIN');
         setHostId('');
         setError('');
-        setStatusMessage('Connecting to host...');
+        setStatusMessage('Enter Game ID to join');
         
-        // Reset all game states
         setLobbyPlayers([]);
         setLobbySettings({});
         
@@ -305,11 +346,11 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
     if (step === 'JOIN') return (
         <div className="w-full max-w-md mx-auto p-6 sm:p-8 bg-gray-900/80 border border-gray-700/50 rounded-2xl shadow-2xl animate-fade-in-down">
             <h1 className="text-2xl sm:text-3xl font-bold text-center text-white mb-2 font-inter">Join Bingo Night</h1>
-            <p className="text-center text-gray-400 mb-6">Enter your name and the Game ID from the host.</p>
+            <p className="text-center text-gray-400 mb-6">{statusMessage}</p>
             <form onSubmit={connectToHost} className="space-y-4">
-                 <input type="text" value={playerName} onChange={e => setPlayerName(e.target.value)} placeholder="Your Name" required className="w-full px-4 py-3 text-lg text-white bg-gray-800 border border-gray-600 rounded-lg focus:ring-4 focus:ring-amber-500/50 focus:border-amber-500"/>
-                 <input type="text" value={hostId} onChange={e => setHostId(e.target.value)} placeholder="Game ID" required className="w-full px-4 py-3 text-lg text-white bg-gray-800 border border-gray-600 rounded-lg focus:ring-4 focus:ring-amber-500/50 focus:border-amber-500"/>
-                {error && <p className="text-red-400 text-sm">{error}</p>}
+                 <input type="text" value={playerName} onChange={e => { setPlayerName(e.target.value); setError('')}} placeholder="Your Name" required className="w-full px-4 py-3 text-lg text-white bg-gray-800 border border-gray-600 rounded-lg focus:ring-4 focus:ring-amber-500/50 focus:border-amber-500"/>
+                 <input type="text" pattern="\d*" maxLength={4} value={hostId} onChange={e => { setHostId(e.target.value); setError('')}} placeholder="4-Digit Game ID" required className="w-full px-4 py-3 text-lg text-white bg-gray-800 border border-gray-600 rounded-lg focus:ring-4 focus:ring-amber-500/50 focus:border-amber-500"/>
+                {error && <p className="text-red-400 text-sm p-2 bg-red-500/10 rounded-md">{error}</p>}
                 <button type="submit" className="w-full py-3 text-lg font-semibold text-gray-900 bg-green-500 rounded-lg hover:bg-green-600 focus:outline-none focus:ring-4 focus:ring-green-500/50">Join Game</button>
             </form>
              <button onClick={onSwitchToManager} className="w-full mt-4 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">Switch to Manager/Admin Login</button>
