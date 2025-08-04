@@ -1,4 +1,7 @@
 
+
+
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Peer, { DataConnection } from 'peerjs';
 import { GameSettings, BingoCard, NetworkMessage, Player, GameAuditLog } from '../types';
@@ -205,11 +208,31 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
                 peerRef.current.destroy();
             }
 
-            const peer = new Peer();
+            const peer = new Peer({
+                debug: 2,
+                config: {
+                    'iceServers': [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' },
+                        // Adding a TURN server as a fallback for difficult NATs
+                        { 
+                            urls: "turn:openrelay.metered.ca:80", 
+                            username: "openrelayproject", 
+                            credential: "openrelayproject" 
+                        },
+                        { 
+                            urls: "turn:openrelay.metered.ca:443", 
+                            username: "openrelayproject", 
+                            credential: "openrelayproject" 
+                        },
+                    ]
+                }
+            });
             peerRef.current = peer;
 
             connectionTimeoutId = window.setTimeout(() => {
                 setError("Connection timed out. Please check the Game ID and your network. The host might be busy or the ID is incorrect.");
+                setStatusMessage('Enter Game ID to join');
                 setStep('JOIN');
                 cleanupAndReset();
             }, 15000); // 15-second timeout
@@ -219,6 +242,7 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
                 
                 if (!/^\d{4}$/.test(hostId.trim())) {
                     setError("Invalid Game ID. It must be a 4-digit number.");
+                    setStatusMessage('Enter Game ID to join');
                     setStep('JOIN');
                     cleanupAndReset();
                     return;
@@ -238,6 +262,7 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
                 conn.on('close', () => {
                     if (stepRef.current === 'LOBBY' || stepRef.current === 'GAME') {
                         setError('Connection to host has been lost.');
+                        setStatusMessage('Enter Game ID to join');
                         setStep('JOIN');
                     }
                     cleanupAndReset();
@@ -245,6 +270,7 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
 
                 conn.on('error', (err) => {
                      setError(`A connection error occurred: ${err.message}`);
+                     setStatusMessage('Enter Game ID to join');
                      setStep('JOIN');
                      cleanupAndReset();
                 });
@@ -275,12 +301,14 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
                         userMessage = `Connection failed: ${err.message}. Please try again.`;
                 }
                 setError(userMessage);
+                setStatusMessage('Enter Game ID to join');
                 setStep('JOIN');
                 cleanupAndReset();
             });
 
         } catch (err: any) {
             setError(`An unexpected error occurred during setup: ${err.message}`);
+            setStatusMessage('Enter Game ID to join');
             setStep('JOIN');
             cleanupAndReset();
         }

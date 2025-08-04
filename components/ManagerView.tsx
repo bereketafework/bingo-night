@@ -1,6 +1,9 @@
 
 
 
+
+
+
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import GameSetup from './GameSetup';
 import GameScreen from './GameScreen';
@@ -159,7 +162,26 @@ const ManagerView: React.FC<ManagerViewProps> = ({ manager, onLogout }) => {
 
   const handleHostGame = () => {
     const newGameId = Math.floor(1000 + Math.random() * 9000).toString();
-    const newPeer = new Peer(newGameId);
+    const newPeer = new Peer(newGameId, {
+        debug: 2,
+        config: {
+            'iceServers': [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                // Adding a TURN server as a fallback for difficult NATs
+                { 
+                    urls: "turn:openrelay.metered.ca:80", 
+                    username: "openrelayproject", 
+                    credential: "openrelayproject" 
+                },
+                { 
+                    urls: "turn:openrelay.metered.ca:443", 
+                    username: "openrelayproject", 
+                    credential: "openrelayproject" 
+                },
+            ]
+        }
+    });
     setPeer(newPeer);
     
     newPeer.on('open', (id) => {
