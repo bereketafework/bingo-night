@@ -15,12 +15,17 @@ const App: React.FC = () => {
   const [appMode, setAppMode] = useState<'manager' | 'player'>('player');
 
   useEffect(() => {
-    // Initialize DB once on app load for seamless switching between modes.
+    // Initialize DB once on app load.
     initializeDb()
       .then(() => setIsDbReady(true))
       .catch((err) => {
         console.error("Database initialization failed:", err);
-        setDbError("Failed to initialize application data. Please refresh the page to try again.");
+        // Check for the specific table missing error from our db service
+        if (err.message?.startsWith("TABLE_MISSING")) {
+          setDbError(err.message);
+        } else {
+          setDbError(`Failed to initialize application data: ${err.message}. Please refresh the page to try again.`);
+        }
       });
   }, []);
 
@@ -35,11 +40,17 @@ const App: React.FC = () => {
 
   const renderContent = () => {
     if (dbError) {
-      return <div className="flex items-center justify-center min-h-screen text-lg text-red-400">{dbError}</div>;
+      return (
+        <div className="flex flex-col items-center justify-center min-h-screen text-center p-4">
+            <h2 className="text-2xl font-bold text-red-500">Application Error</h2>
+            <p className="mt-2 text-lg text-red-400 max-w-xl">{dbError}</p>
+            <p className="mt-4 text-gray-500">This might be a one-time issue. Please try refreshing the page. If the problem persists, ensure your database is set up correctly.</p>
+        </div>
+      );
     }
 
     if (!isDbReady) {
-      return <div className="flex items-center justify-center min-h-screen text-lg text-gray-400">Initializing...</div>;
+      return <div className="flex items-center justify-center min-h-screen text-lg text-gray-400">Initializing & connecting to database...</div>;
     }
     
     // If a user is logged in, show their respective panel.

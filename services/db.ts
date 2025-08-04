@@ -1,202 +1,326 @@
-// --- A NOTE ON THIS DATABASE IMPLEMENTATION ---
-// This file has been refactored to simulate a backend database connection.
-// The original sql.js + localStorage implementation was client-side only,
-// meaning it could not support multiple users on different devices.
-//
-// To build a truly deployable, multi-user application, you would need to
-// replace the placeholder logic in this file with actual API calls to a
-// backend server (e.g., using Node.js/Express) or a Backend-as-a-Service
-// like Firebase Firestore.
-//
-// The functions are now `async` to mimic the asynchronous nature of
-// network requests. The in-memory data (`mockDb`) is a temporary
-// placeholder to keep the application functional for demonstration.
 
-import { User, GameAuditLog, FilterPeriod, UserRole, WinningPattern } from '../types';
+
+import { createClient } from '@supabase/supabase-js';
+import { User, GameAuditLog, FilterPeriod, UserRole, WinningPattern, AuditedPlayer, Language } from '../types';
+
+// IMPORTANT: In a real production app without a build step, credentials should not be hardcoded.
+// This is for demonstration with the provided Supabase instance.
+const supabaseUrl = 'https://hjfafixgotcrfnrcbejf.supabase.co';
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZmFmaXhnb3RjcmZucmNiZWpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQzMjA5MTMsImV4cCI6MjA2OTg5NjkxM30.q7_hY7v-TkN0U6NqasA5tIL21vCtrqRT6y3MIOc1qMM';
+
+if (!supabaseUrl || !supabaseKey) {
+    throw new Error('Supabase URL and Key are required.');
+}
+
+
+// --- Database Type Definition for Supabase Client ---
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[];
+
+export interface Database {
+  public: {
+    Tables: {
+      users: {
+        Row: {
+          id: string;
+          name: string;
+          password: string;
+          role: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          password: string;
+          role: UserRole;
+        };
+        Update: {
+          name?: string;
+          password?: string;
+          role?: UserRole;
+        };
+      };
+      game_logs: {
+        Row: {
+          id: number;
+          created_at: string;
+          game_id: string;
+          start_time: string;
+          manager_id: string;
+          manager_name: string;
+          settings: Json;
+          players: Json;
+          called_numbers_sequence: Json;
+          winner: Json | null;
+        };
+        Insert: {
+          id?: number;
+          created_at?: string;
+          game_id: string;
+          start_time: string;
+          manager_id: string;
+          manager_name: string;
+          settings: GameAuditLog['settings'];
+          players: AuditedPlayer[];
+          called_numbers_sequence: number[];
+          winner: GameAuditLog['winner'];
+        };
+        Update: {
+          id?: number;
+          game_id?: string;
+          start_time?: string;
+          manager_id?: string;
+          manager_name?: string;
+          settings?: Json;
+          players?: Json;
+          called_numbers_sequence?: Json;
+          winner?: Json | null;
+        };
+      };
+      settings: {
+        Row: {
+          key: string;
+          value: string;
+          updated_at: string;
+        };
+        Insert: {
+          key: string;
+          value: string;
+          updated_at?: string;
+        };
+        Update: {
+          key?: string;
+          value?: string;
+          updated_at?: string;
+        };
+      };
+    };
+    Views: {
+      [_ in never]: never;
+    };
+    Functions: {
+      [_ in never]: never;
+    };
+  };
+}
+
+
+// Assumes the following Supabase schema:
+// - tables: `users`, `game_logs`, `settings`
+// - `users` columns: `id` (uuid, pk), `name` (text), `password` (text), `role` (text)
+// - `game_logs` columns: `id` (uuid, pk), `game_id` (text), `start_time` (timestamptz), `manager_id` (uuid), `manager_name` (text), `settings` (jsonb), `players` (jsonb), `called_numbers_sequence` (jsonb), `winner` (jsonb)
+// - `settings` columns: `key` (text, pk), `value` (text), `updated_at` (timestamptz)
+
+const supabase = createClient<Database>(supabaseUrl, supabaseKey);
+
 
 // --- Hashing Utility (Simple, for demonstration only) ---
 const simpleHash = async (text: string): Promise<string> => {
+    // This simple hash is for demonstration with the existing app structure.
+    // For a production app, use Supabase Auth which handles password security automatically.
     const buffer = new TextEncoder().encode(text);
     const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 };
 
-// --- Mock In-Memory Database (Placeholder for a real backend database) ---
-let mockDb: {
-  users: (User & { password?: string })[];
-  gameLogs: GameAuditLog[];
-  settings: { [key: string]: string };
-} = {
-  users: [],
-  gameLogs: [],
-  settings: {
-    'winner_prize_percentage': '0.7',
-    'enabled_winning_patterns': JSON.stringify(Object.values(WinningPattern)),
-  },
-};
 let isDbInitialized = false;
 
-// --- Public API ---
-
 /**
- * In a real backend scenario, this would not be needed on the client.
- * Here, it simulates seeding the initial data into our mock database.
+ * Connects to Supabase and seeds initial data if the database is empty.
  */
 export const initializeDb = async () => {
     if (isDbInitialized) return;
+    console.log("Connecting to Supabase and verifying initial data...");
 
-    console.log("Simulating connection to backend and seeding initial data...");
+    try {
+        // Check for 'users' table
+        const { data: existingUsers, error: usersError } = await supabase.from('users').select('name').limit(1);
+        if (usersError?.code === '42P01') { // 42P01: undefined_table
+            throw new Error("TABLE_MISSING: The 'users' table is missing. Please run the setup SQL in your Supabase project's SQL Editor.");
+        } else if (usersError) {
+            throw usersError;
+        }
 
-    const usersToSeed = [
-        { name: 'superadmin', role: 'super_admin', pass: 'superadmin123' },
-        { name: 'admin', role: 'admin', pass: 'admin123' },
-        { name: 'manager1', role: 'manager', pass: 'pass123' },
-        { name: 'manager2', role: 'manager', pass: 'pass123' },
-    ];
-    
-    for (const [index, user] of usersToSeed.entries()) {
-        const hashedPassword = await simpleHash(user.pass);
-        mockDb.users.push({
-            id: `user-${Date.now()}-${index}`,
-            name: user.name,
-            password: hashedPassword,
-            role: user.role as UserRole,
-        });
+        // Check for 'game_logs' table
+        const { error: logsError } = await supabase.from('game_logs').select('game_id').limit(1);
+        if (logsError?.code === '42P01') {
+            throw new Error("TABLE_MISSING: The 'game_logs' table is missing. Please run the setup SQL in your Supabase project's SQL Editor.");
+        } else if (logsError) {
+            throw logsError;
+        }
+
+        // Check for 'settings' table
+        const { data: existingSettings, error: settingsError } = await supabase.from('settings').select('key').limit(1);
+        if (settingsError?.code === '42P01') {
+            throw new Error("TABLE_MISSING: The 'settings' table is missing. Please run the setup SQL in your Supabase project's SQL Editor.");
+        } else if (settingsError) {
+            throw settingsError;
+        }
+
+        if (existingUsers.length === 0) {
+            console.log("Seeding initial users to Supabase...");
+            const usersToSeed = [
+                { name: 'superadmin', role: 'super_admin', pass: 'superadmin123' },
+                { name: 'admin', role: 'admin', pass: 'admin123' },
+                { name: 'manager1', role: 'manager', pass: 'pass123' },
+                { name: 'manager2', role: 'manager', pass: 'pass123' },
+            ];
+            const newUsers = await Promise.all(usersToSeed.map(async (user) => ({
+                name: user.name,
+                password: await simpleHash(user.pass),
+                role: user.role as UserRole,
+            })));
+            const { error: insertError } = await supabase.from('users').insert(newUsers);
+            if (insertError) throw insertError;
+        }
+        
+        if (existingSettings.length === 0) {
+            console.log("Seeding initial settings to Supabase...");
+            const settingsToSeed = [
+                { key: 'winner_prize_percentage', value: '0.7', updated_at: new Date().toISOString() },
+                { key: 'enabled_winning_patterns', value: JSON.stringify(Object.values(WinningPattern)), updated_at: new Date().toISOString() }
+            ];
+            const { error: insertError } = await supabase.from('settings').insert(settingsToSeed);
+            if (insertError) throw insertError;
+        }
+        
+        isDbInitialized = true;
+        console.log("Supabase connection successful and data verified.");
+    } catch (e: any) {
+        console.error("Supabase initialization error:", e);
+        // Re-throw the original error to be handled by the UI
+        throw e;
     }
-
-    isDbInitialized = true;
-    console.log("Mock database initialized and seeded.");
-    return Promise.resolve();
 };
 
-/**
- * Fetches users from the database.
- * REAL-WORLD: This would be a GET request to an endpoint like /api/users.
- */
 export const getUsers = async (role?: UserRole): Promise<User[]> => {
-    console.log(`Simulating GET /api/users?role=${role || 'all'}`);
-    await initializeDb(); // Ensure DB is ready
-    let filteredUsers = mockDb.users;
+    let query = supabase.from('users').select('id, name, role');
     if (role) {
-        filteredUsers = mockDb.users.filter(u => u.role === role);
+        query = query.eq('role', role);
     }
-    // Return users without password hashes
-    return Promise.resolve(filteredUsers.map(({ password, ...user }) => user));
+    const { data, error } = await query;
+    if (error) {
+        console.error('Error fetching users:', error);
+        return [];
+    }
+    return data;
 };
 
-/**
- * Authenticates a user against the database.
- * REAL-WORLD: This would be a POST request to /api/login with name and password.
- */
 export const authenticateUser = async (name: string, passwordAttempt: string): Promise<User | null> => {
-    console.log(`Simulating POST /api/login for user: ${name}`);
-    await initializeDb(); // Ensure DB is ready
+    const { data: userRecord, error } = await supabase
+        .from('users')
+        .select('id, name, role, password')
+        .eq('name', name)
+        .single();
     
-    const userRecord = mockDb.users.find(u => u.name === name);
-    if (userRecord && userRecord.password) {
+    if (error || !userRecord) {
+        if (error && error.code !== 'PGRST116') console.error('Authentication error:', error);
+        return null;
+    }
+    
+    if (userRecord.password) {
         const hashedAttempt = await simpleHash(passwordAttempt);
         if (hashedAttempt === userRecord.password) {
             const { password, ...userToReturn } = userRecord;
-            return Promise.resolve(userToReturn);
+            return userToReturn;
         }
     }
-    return Promise.resolve(null);
+    return null;
 };
 
-/**
- * Retrieves game logs, optionally filtered.
- * REAL-WORLD: This would be a GET request to /api/gamelogs with filter query params.
- */
 export const getGameLogs = async (filters: { period?: FilterPeriod; managerId?: string } = {}): Promise<GameAuditLog[]> => {
-    console.log(`Simulating GET /api/gamelogs with filters:`, filters);
-    await initializeDb(); // Ensure DB is ready
-    
-    let logs = [...mockDb.gameLogs];
+    let query = supabase.from('game_logs').select('*');
 
     if (filters.period && filters.period !== 'all') {
-        const now = new Date();
         const daysToFilter = filters.period === '7d' ? 7 : 30;
         const filterDate = new Date();
-        filterDate.setDate(now.getDate() - daysToFilter);
-        logs = logs.filter(log => new Date(log.startTime) >= filterDate);
+        filterDate.setDate(new Date().getDate() - daysToFilter);
+        query = query.gte('start_time', filterDate.toISOString());
     }
 
     if (filters.managerId && filters.managerId !== 'all') {
-        logs = logs.filter(log => log.managerId === filters.managerId);
+        query = query.eq('manager_id', filters.managerId);
     }
     
-    logs.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
-    return Promise.resolve(logs);
-};
+    const { data, error } = await query.order('start_time', { ascending: false });
 
-/**
- * Saves a completed game log to the database.
- * REAL-WORLD: This would be a POST request to /api/gamelogs.
- */
-export const saveGameLog = async (log: GameAuditLog): Promise<void> => {
-    console.log(`Simulating POST /api/gamelogs for gameId: ${log.gameId}`);
-    await initializeDb();
-    mockDb.gameLogs.push(log);
-    return Promise.resolve();
-};
-
-/**
- * Retrieves a specific setting value.
- * REAL-WORLD: This would be a GET request to /api/settings/:key.
- */
-export const getSetting = async (key: string): Promise<string | null> => {
-    console.log(`Simulating GET /api/settings/${key}`);
-    await initializeDb();
-    return Promise.resolve(mockDb.settings[key] || null);
-};
-
-/**
- * Sets a specific setting value.
- * REAL-WORLD: This would be a PUT or POST request to /api/settings.
- */
-export const setSetting = async (key: string, value: string): Promise<void> => {
-    console.log(`Simulating POST /api/settings with {${key}: ${value}}`);
-    await initializeDb();
-    mockDb.settings[key] = value;
-    return Promise.resolve();
-};
-
-/**
- * Creates a new user (manager or admin).
- * REAL-WORLD: This would be a POST request to /api/users.
- */
-export const createUser = async (name: string, passwordAttempt: string, role: 'manager' | 'admin'): Promise<{ success: boolean; message: string }> => {
-    console.log(`Simulating POST /api/users to create ${role}: ${name}`);
-    await initializeDb();
-
-    if (mockDb.users.some(u => u.name === name)) {
-        return Promise.resolve({ success: false, message: 'Username already exists.' });
+    if (error) {
+        console.error('Error fetching game logs:', error);
+        return [];
     }
+    
+    // Map snake_case from DB to camelCase for the app
+    return data.map(log => ({
+        gameId: log.game_id,
+        startTime: log.start_time,
+        managerId: log.manager_id,
+        managerName: log.manager_name,
+        settings: log.settings as GameAuditLog['settings'],
+        players: log.players as AuditedPlayer[],
+        calledNumbersSequence: log.called_numbers_sequence as number[],
+        winner: log.winner as GameAuditLog['winner'],
+    }));
+};
+
+export const saveGameLog = async (log: GameAuditLog): Promise<void> => {
+    const logToSave = {
+        game_id: log.gameId,
+        start_time: log.startTime,
+        manager_id: log.managerId,
+        manager_name: log.managerName,
+        settings: log.settings,
+        players: log.players,
+        called_numbers_sequence: log.calledNumbersSequence,
+        winner: log.winner,
+    };
+    const { error } = await supabase.from('game_logs').insert(logToSave);
+    if (error) console.error('Error saving game log:', error);
+};
+
+export const getSetting = async (key: string): Promise<string | null> => {
+    const { data, error } = await supabase.from('settings').select('value').eq('key', key).single();
+    if (error) {
+        if (error.code !== 'PGRST116') console.error(`Error getting setting ${key}:`, error);
+        return null;
+    }
+    return data.value;
+};
+
+export const setSetting = async (key: string, value: string): Promise<void> => {
+    const { error } = await supabase
+        .from('settings')
+        .upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+    if (error) console.error(`Error setting ${key}:`, error);
+};
+
+export const createUser = async (name: string, passwordAttempt: string, role: 'manager' | 'admin'): Promise<{ success: boolean; message: string }> => {
+    const { data: existing, error: checkError } = await supabase.from('users').select('id').eq('name', name).single();
+    if (checkError && checkError.code !== 'PGRST116') {
+        console.error('Error checking for existing user:', checkError);
+        return { success: false, message: 'Database error while checking for user.' };
+    }
+    if (existing) return { success: false, message: 'Username already exists.' };
 
     const hashedPassword = await simpleHash(passwordAttempt);
-    const newUser: User & { password?: string } = {
-        id: `user-${Date.now()}`,
-        name,
-        password: hashedPassword,
-        role,
-    };
-    mockDb.users.push(newUser);
-    
-    return Promise.resolve({ success: true, message: `User '${name}' created successfully as ${role}.` });
+    const { error } = await supabase.from('users').insert({ name, password: hashedPassword, role });
+    if (error) {
+        console.error('Error creating user:', error);
+        return { success: false, message: `Failed to create user: ${error.message}` };
+    }
+    return { success: true, message: `User '${name}' created successfully as ${role}.` };
 };
 
-/**
- * Gets the list of enabled winning patterns from settings.
- */
 export const getEnabledWinningPatterns = async (): Promise<WinningPattern[]> => {
     const patternsJson = await getSetting('enabled_winning_patterns');
     if (patternsJson) {
         try {
             const patterns = JSON.parse(patternsJson);
-            if (Array.isArray(patterns)) {
-                return patterns as WinningPattern[];
-            }
+            if (Array.isArray(patterns)) return patterns as WinningPattern[];
         } catch (e) {
             console.error("Failed to parse enabled_winning_patterns setting:", e);
         }
@@ -204,26 +328,24 @@ export const getEnabledWinningPatterns = async (): Promise<WinningPattern[]> => 
     return Object.values(WinningPattern);
 };
 
-/**
- * Clears game logs from the database.
- * REAL-WORLD: This would be a DELETE request to /api/gamelogs.
- */
 export const clearGameLogs = async (olderThanDays?: number): Promise<{ success: boolean; message: string }> => {
-    console.log(`Simulating DELETE /api/gamelogs older than ${olderThanDays || 'all'} days`);
-    await initializeDb();
-    
-    const originalCount = mockDb.gameLogs.length;
+    let query = supabase.from('game_logs').delete();
     if (olderThanDays) {
         const date = new Date();
         date.setDate(date.getDate() - olderThanDays);
-        mockDb.gameLogs = mockDb.gameLogs.filter(log => new Date(log.startTime) >= date);
+        query = query.lt('start_time', date.toISOString());
     } else {
-        mockDb.gameLogs = [];
+        query = query.not('game_id', 'is', null); // Match all rows
     }
-    const removedCount = originalCount - mockDb.gameLogs.length;
-
+    
+    const { data: deletedRows, error } = await query.select(); // .select() returns the deleted rows
+    if (error) {
+        console.error('Error clearing game logs:', error);
+        return { success: false, message: `Failed to clear logs: ${error.message}` };
+    }
+    const removedCount = deletedRows?.length || 0;
     const message = olderThanDays 
         ? `Successfully cleared ${removedCount} game logs older than ${olderThanDays} days.`
         : `Successfully cleared all ${removedCount} game logs.`;
-    return Promise.resolve({ success: true, message });
+    return { success: true, message };
 };

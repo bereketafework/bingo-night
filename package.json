@@ -12,7 +12,8 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "sql.js": "1.10.3",
-    "peerjs": "1.5.2"
+    "peerjs": "1.5.2",
+    "@supabase/supabase-js": "2"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
