@@ -47,6 +47,14 @@ export const getBingoLetter = (num: number): string => {
   return '';
 };
 
+export const areCardsIdentical = (cardA: BingoCard, cardB: BingoCard): boolean => {
+    if (!cardA || !cardB || cardA.length !== 5 || cardA[0].length !== 5 || cardB.length !== 5 || cardB[0].length !== 5) {
+        return false;
+    }
+    // Easiest way to deep compare value of nested array
+    return JSON.stringify(cardA) === JSON.stringify(cardB);
+};
+
 export const checkWin = (
   markedCells: boolean[][],
   pattern: WinningPattern

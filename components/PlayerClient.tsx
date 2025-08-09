@@ -1,7 +1,3 @@
-
-
-
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Peer, { DataConnection } from 'peerjs';
 import { GameSettings, BingoCard, NetworkMessage, Player, GameAuditLog } from '../types';
@@ -11,6 +7,7 @@ import { StarIcon, CheckCircleIcon, UsersIcon, GamepadIcon, SpeedIcon, StakeIcon
 import BingoCardComponent from './BingoCard';
 import CalledNumbers from './CalledNumbers';
 import BingoModal from './BingoModal';
+import CardCreator from './CardCreator';
 
 // A selectable card for the player lobby
 const SelectableBingoCard: React.FC<{ card: BingoCard, isSelected: boolean, onClick: () => void, cardId: number, isLastUsed?: boolean }> = ({ card, isSelected, onClick, cardId, isLastUsed }) => {
@@ -56,6 +53,7 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
     const [selectedCard, setSelectedCard] = useState<BingoCard | null>(null);
     const [selectedCardIndex, setSelectedCardIndex] = useState<number | null>(null);
     const [indexOfLastUsed, setIndexOfLastUsed] = useState<number | null>(null);
+    const [lobbyMode, setLobbyMode] = useState<'SELECT' | 'CREATE'>('SELECT');
 
     // Game state
     const [allPlayers, setAllPlayers] = useState<Player[]>([]);
@@ -66,6 +64,10 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
     const [winner, setWinner] = useState<Player | null>(null);
     const [prize, setPrize] = useState(0);
     const [auditLog, setAuditLog] = useState<GameAuditLog | null>(null);
+    
+    const calledNumbersRef = useRef(calledNumbers);
+    useEffect(() => { calledNumbersRef.current = calledNumbers }, [calledNumbers]);
+
 
     const handleMessageRef = useRef<((message: NetworkMessage) => void) | null>(null);
 
@@ -119,6 +121,16 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
                         setLobbySettings(message.payload.settings);
                     }
                     break;
+                case 'CARD_ACCEPTED':
+                    setStatusMessage('Card accepted by host!');
+                    setTimeout(() => setStatusMessage('Waiting for host to start...'), 2500);
+                    break;
+                case 'CARD_REJECTED_DUPLICATE':
+                    setError(message.payload.message);
+                    setSelectedCard(null);
+                    setSelectedCardIndex(null);
+                    setPlayer(null);
+                    break;
                 case 'GAME_START':
                     if (player) {
                         setLobbySettings(message.payload.settings);
@@ -138,22 +150,27 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
                     setCurrentNumber(newCurrentNumber);
                     setCalledNumbers(newCalledNumbers);
     
-                    const calledSet = new Set(newCalledNumbers);
-                    setAllPlayers(prevPlayers =>
-                        prevPlayers.map(p => {
-                            if (!p.card || p.card.length === 0 || p.disconnected) return p;
-    
-                            const newMarkedCells = Array.from({ length: 5 }, () => Array(5).fill(false));
-                            p.card.forEach((row, rIdx) => {
-                                row.forEach((cell, cIdx) => {
-                                    if (cell === 'FREE' || calledSet.has(cell as number)) {
-                                        newMarkedCells[rIdx][cIdx] = true;
-                                    }
+                    if (lobbySettings.markingMode === 'AUTOMATIC') {
+                        setAllPlayers(prevPlayers =>
+                            prevPlayers.map(p => {
+                                if (!p.card || p.card.length === 0 || p.disconnected) return p;
+        
+                                const newMarkedCells = p.markedCells.map(r => [...r]);
+                                let changed = false;
+                                p.card.forEach((row, rIdx) => {
+                                    row.forEach((cell, cIdx) => {
+                                        if (cell === newCurrentNumber) {
+                                            if (!newMarkedCells[rIdx][cIdx]) {
+                                                newMarkedCells[rIdx][cIdx] = true;
+                                                changed = true;
+                                            }
+                                        }
+                                    });
                                 });
-                            });
-                            return { ...p, markedCells: newMarkedCells };
-                        })
-                    );
+                                return changed ? { ...p, markedCells: newMarkedCells } : p;
+                            })
+                        );
+                    }
                     break;
                 }
                 case 'WINNER_ANNOUNCED':
@@ -169,7 +186,7 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
                     break;
             }
         };
-    }, [player]);
+    }, [player, lobbySettings.markingMode]);
 
     useEffect(() => {
         if (step === 'GAME' && !winner && lobbySettings.pattern) {
@@ -315,6 +332,8 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
     };
     
     const handleCardSelection = (card: BingoCard, index: number) => {
+        setError('');
+        setStatusMessage('Confirming card with host...');
         setSelectedCard(card);
         setSelectedCardIndex(index);
         const markedCells = Array.from({ length: 5 }, () => Array(5).fill(false));
@@ -370,6 +389,34 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
         setAuditLog(null);
     };
 
+    const handleCustomCardSubmit = (card: BingoCard) => {
+        // A custom card doesn't have a pre-made index.
+        // The existing handleCardSelection can be used with a sentinel value.
+        handleCardSelection(card, -1);
+    };
+
+    const handleManualMark = useCallback((playerId: string, row: number, col: number) => {
+        if (lobbySettings.markingMode !== 'MANUAL' || winner) return;
+    
+        const calledSet = new Set(calledNumbersRef.current);
+    
+        setAllPlayers(prevPlayers =>
+            prevPlayers.map(p => {
+                if (p.id === playerId) {
+                    const cellValue = p.card[row][col];
+                    if (typeof cellValue === 'number' && calledSet.has(cellValue)) {
+                        const newMarkedCells = p.markedCells.map(r => [...r]);
+                        // Toggle the mark
+                        newMarkedCells[row][col] = !newMarkedCells[row][col];
+                        return { ...p, markedCells: newMarkedCells };
+                    }
+                }
+                return p;
+            })
+        );
+    }, [winner, lobbySettings.markingMode]);
+
+
     // --- RENDER LOGIC ---
     if (step === 'JOIN') return (
         <div className="w-full max-w-md mx-auto p-6 sm:p-8 bg-gray-900/80 border border-gray-700/50 rounded-2xl shadow-2xl animate-fade-in-down">
@@ -392,32 +439,49 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
                 <p className="text-center text-amber-400 mt-1 mb-6">Welcome, {playerName}! The host is setting up the game.</p>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div className="md:col-span-2">
-                        <h2 className="text-xl sm:text-2xl font-bold text-white mb-2 text-center">{selectedCard ? 'Your Card is Selected!' : 'Choose Your Card'}</h2>
-                        <p className="text-gray-400 text-center mb-4 text-sm sm:text-base">{selectedCard ? 'You can change your selection by picking another card.' : 'Pick one card to play with.'}</p>
+                        <div className="flex items-center justify-center gap-2 bg-gray-800/80 p-1 rounded-lg mb-4">
+                            <button onClick={() => setLobbyMode('SELECT')} className={`w-full py-2 text-center rounded-md font-semibold transition-colors text-sm ${lobbyMode === 'SELECT' ? 'bg-amber-500 text-gray-900' : 'bg-transparent text-gray-300 hover:bg-gray-600/50'}`}>
+                                Select a Card
+                            </button>
+                            <button onClick={() => setLobbyMode('CREATE')} className={`w-full py-2 text-center rounded-md font-semibold transition-colors text-sm ${lobbyMode === 'CREATE' ? 'bg-amber-500 text-gray-900' : 'bg-transparent text-gray-300 hover:bg-gray-600/50'}`}>
+                                Create Your Own
+                            </button>
+                        </div>
                         
-                        <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-4">
-                            {generatedCards.length > 0 ? generatedCards.map((card, i) => (
-                                <SelectableBingoCard 
-                                    key={i} 
-                                    card={card} 
-                                    cardId={i} 
-                                    isSelected={selectedCardIndex === i} 
-                                    onClick={() => handleCardSelection(card, i)}
-                                    isLastUsed={i === indexOfLastUsed}
-                                />
-                            )) : (
-                                <div className="col-span-full text-center text-gray-400 p-8">
-                                    <p>Generating new bingo cards...</p>
+                        {lobbyMode === 'SELECT' ? (
+                            <>
+                                <h2 className="text-xl sm:text-2xl font-bold text-white mb-2 text-center">{selectedCard ? 'Your Card is Selected!' : 'Choose Your Card'}</h2>
+                                <p className="text-gray-400 text-center mb-4 text-sm sm:text-base">{selectedCard ? 'You can change your selection by picking another card.' : 'Pick one card to play with.'}</p>
+                                <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-4">
+                                    {generatedCards.length > 0 ? generatedCards.map((card, i) => (
+                                        <SelectableBingoCard 
+                                            key={i} 
+                                            card={card} 
+                                            cardId={i} 
+                                            isSelected={selectedCardIndex === i} 
+                                            onClick={() => handleCardSelection(card, i)}
+                                            isLastUsed={i === indexOfLastUsed}
+                                        />
+                                    )) : (
+                                        <div className="col-span-full text-center text-gray-400 p-8">
+                                            <p>Generating new bingo cards...</p>
+                                        </div>
+                                    )}
                                 </div>
+                            </>
+                        ) : (
+                           <CardCreator onSubmit={handleCustomCardSubmit} />
+                        )}
+
+                        <div className="mt-4 text-center min-h-[40px] flex items-center justify-center">
+                            {error ? (
+                                <p className="text-red-400 text-sm p-2 bg-red-500/10 rounded-md animate-fade-in w-full">{error}</p>
+                            ) : selectedCard ? (
+                                <p className="text-green-400 font-semibold animate-fade-in">{statusMessage}</p>
+                            ) : (
+                                <p className="text-gray-400">You must select or create a card to join the game.</p>
                             )}
                         </div>
-
-                        {!selectedCard && (
-                            <p className="text-gray-400 mt-4 text-center">You must select a card to join the game.</p>
-                        )}
-                        {selectedCard && (
-                            <p className="text-green-400 mt-4 text-center font-semibold">Ready to play! Waiting for the host to start...</p>
-                        )}
                     </div>
                     <div className="space-y-4">
                         <div className="bg-gray-800/50 p-4 rounded-lg">
@@ -446,17 +510,28 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
                  <header className="mb-4 p-4 bg-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-lg flex flex-col md:flex-row justify-between items-center gap-4">
                     <div className="flex-1 text-center md:text-left">
                         <h1 className="text-2xl sm:text-3xl font-bold text-white font-inter">Let's Play BINGO!</h1>
-                        <p className="text-base text-gray-400 mt-1">Good luck, {playerName}!</p>
+                        <p className="text-base text-gray-400 mt-1">Good luck, {playerName}! Marking is <span className="font-bold text-amber-400">{lobbySettings.markingMode}</span>.</p>
                     </div>
-                    {canCallBingo && <button onClick={handleBingoCall} className="px-6 py-3 sm:px-8 sm:py-4 font-bold text-xl sm:text-2xl text-gray-900 bg-green-500 rounded-lg animate-pulse">BINGO!</button>}
-                    {!canCallBingo && winner == null && <p className="text-lg text-gray-300">{statusMessage}</p>}
+                    <div className="flex flex-col sm:flex-row items-center gap-4">
+                        {canCallBingo && <button onClick={handleBingoCall} className="px-6 py-3 sm:px-8 sm:py-4 font-bold text-xl sm:text-2xl text-gray-900 bg-green-500 rounded-lg animate-pulse hover:animate-none">BINGO!</button>}
+                    </div>
+                    {!canCallBingo && winner == null && <p className="text-lg text-gray-300 hidden md:block">{statusMessage}</p>}
                 </header>
 
                 <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mt-6">
-                    <div className="lg:col-span-3 flex items-start justify-center">
+                    <div className="lg:col-span-3 flex flex-col items-center justify-start">
                         {selfPlayerState ? (
                             <div className="w-full max-w-sm sm:max-w-md 2xl:max-w-lg 3xl:max-w-xl">
-                                 <BingoCardComponent player={selfPlayerState} onToggleMark={()=>{}} isInteractive={false} />
+                                 <BingoCardComponent 
+                                    player={selfPlayerState} 
+                                    onToggleMark={handleManualMark}
+                                    isInteractive={lobbySettings.markingMode === 'MANUAL' && !winner}
+                                 />
+                                 {lobbySettings.markingMode === 'MANUAL' && !winner &&
+                                    <p className="text-center text-amber-300/80 text-sm mt-3 animate-fade-in">
+                                        <b>Manual Mode:</b> Click on called numbers on your card to mark them.
+                                    </p>
+                                 }
                             </div>
                         ) : (
                             <div className="aspect-square w-full max-w-md bg-gray-800 rounded-lg flex items-center justify-center text-white"><p>Waiting for your card...</p></div>

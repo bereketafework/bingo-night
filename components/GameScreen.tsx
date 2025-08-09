@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { GameStatus, Player, GameSettings, GameAuditLog, User } from '../types';
 import { WINNING_PATTERNS_CONFIG } from '../constants';
@@ -21,6 +22,8 @@ interface GameScreenProps {
   onToggleMute: () => void;
   onToggleCardVisibility: (playerId: string) => void;
   onToggleMark: (playerId: string, row: number, col: number) => void;
+  onManagerBingoCheck: () => void;
+  isManualMarking: boolean;
 }
 
 const HiddenCardPlaceholder: React.FC<{ player: Player, onShow: () => void }> = ({ player, onShow }) => (
@@ -41,9 +44,32 @@ const HiddenCardPlaceholder: React.FC<{ player: Player, onShow: () => void }> = 
 const GameScreen: React.FC<GameScreenProps> = ({ 
     settings, players, manager, onPlayAgain, 
     status, winner, auditLog, calledNumbers, currentNumber, isMuted,
-    onGameAction, onToggleMute, onToggleCardVisibility, onToggleMark
+    onGameAction, onToggleMute, onToggleCardVisibility, onToggleMark,
+    onManagerBingoCheck, isManualMarking
 }) => {
   const totalStake = settings.stake * players.filter(p => !p.disconnected).length;
+
+  const getButtonContent = () => {
+    if (status === GameStatus.Over) {
+        return { icon: <RefreshIcon />, text: 'Play Again', className: 'bg-amber-500 hover:bg-amber-600 text-gray-900' };
+    }
+    if (settings.callingMode === 'MANUAL') {
+        if (status === GameStatus.Running) {
+            return { icon: <PlayIcon />, text: 'Call Next', className: 'bg-yellow-500 hover:bg-yellow-600 text-gray-900' };
+        }
+        return { icon: <PlayIcon />, text: 'Start Game', className: 'bg-green-500 hover:bg-green-600 text-gray-900' };
+    }
+    // Automatic mode
+    if (status === GameStatus.Running) {
+        return { icon: <PauseIcon />, text: 'Pause', className: 'bg-yellow-500 hover:bg-yellow-600 text-gray-900' };
+    }
+    if (status === GameStatus.Paused) {
+        return { icon: <PlayIcon />, text: 'Resume', className: 'bg-green-500 hover:bg-green-600 text-gray-900' };
+    }
+    return { icon: <PlayIcon />, text: 'Start', className: 'bg-green-500 hover:bg-green-600 text-gray-900' };
+  };
+
+  const {icon, text, className} = getButtonContent();
 
   return (
     <div className="w-full h-full">
@@ -57,14 +83,25 @@ const GameScreen: React.FC<GameScreenProps> = ({
              <div className="flex items-center gap-2" title="Total Stake"><StakeIcon className="w-4 h-4 sm:w-5 sm:h-5 text-green-500"/> <span className="font-semibold">Total: ${totalStake.toFixed(2)}</span></div>
              <div className="flex items-center gap-2" title="Possible Prize"><PrizeIcon className="w-4 h-4 sm:w-5 sm:h-5 text-yellow-400"/> <span className="font-semibold">${settings.prize.toFixed(2)}</span></div>
              <div className="flex items-center gap-2" title="Number of Players/Cards"><UsersIcon className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400"/> <span className="font-semibold">{players.length}</span></div>
-             <div className="flex items-center gap-2" title="Calling Speed"><SpeedIcon className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400"/> <span className="font-semibold">{settings.speed/1000}s</span></div>
+             {settings.callingMode === 'AUTOMATIC' && (
+                <div className="flex items-center gap-2" title="Calling Speed"><SpeedIcon className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400"/> <span className="font-semibold">{settings.speed/1000}s</span></div>
+             )}
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={onGameAction} className={`px-4 py-2 sm:px-6 sm:py-3 rounded-lg font-bold flex items-center gap-2 transition-all text-base ${status === GameStatus.Running ? 'bg-yellow-500 hover:bg-yellow-600 text-gray-900' : status === GameStatus.Over ? 'bg-amber-500 hover:bg-amber-600 text-gray-900' : 'bg-green-500 hover:bg-green-600 text-gray-900'}`}>
-            {status === GameStatus.Running ? <PauseIcon/> : status === GameStatus.Over ? <RefreshIcon/> : <PlayIcon/>}
-            {status === GameStatus.Running ? 'Pause' : status === GameStatus.Over ? 'Play Again' : 'Start'}
+          <button onClick={onGameAction} className={`px-4 py-2 sm:px-6 sm:py-3 rounded-lg font-bold flex items-center gap-2 transition-all text-base ${className}`}>
+            {icon}
+            {text}
           </button>
+          
+           {status === GameStatus.Running && isManualMarking && (
+                <button
+                    onClick={onManagerBingoCheck}
+                    className="px-4 py-2 sm:px-6 sm:py-3 rounded-lg font-bold flex items-center gap-2 transition-all text-base bg-green-500 hover:bg-green-600 text-gray-900 animate-pulse"
+                >
+                    BINGO!
+                </button>
+            )}
 
           {(status === GameStatus.Running || status === GameStatus.Paused) && (
             <button
@@ -87,7 +124,7 @@ const GameScreen: React.FC<GameScreenProps> = ({
                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 3xl:grid-cols-4 gap-4 sm:gap-6 max-h-[70vh] overflow-y-auto pr-2">
                     {players.map(player =>
                         player.isVisible ? (
-                            <BingoCard key={player.id} player={player} onToggleMark={onToggleMark} onToggleVisibility={onToggleCardVisibility} isInteractive={player.isHuman} />
+                            <BingoCard key={player.id} player={player} onToggleMark={onToggleMark} onToggleVisibility={onToggleCardVisibility} isInteractive={player.isHuman && settings.markingMode === 'MANUAL'} />
                         ) : (
                             <HiddenCardPlaceholder key={player.id} player={player} onShow={() => onToggleCardVisibility(player.id)} />
                         )

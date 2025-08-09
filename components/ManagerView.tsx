@@ -1,9 +1,4 @@
 
-
-
-
-
-
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import GameSetup from './GameSetup';
 import GameScreen from './GameScreen';
@@ -11,7 +6,7 @@ import AuditScreen from './AuditScreen';
 import { GameSettings, User, Player, NetworkMessage, Language, WinningPattern, GameStatus, GameAuditLog } from '../types';
 import Peer, { DataConnection } from 'peerjs';
 import { WINNING_PATTERNS } from '../constants';
-import { checkWin, speak, cancelSpeech } from '../services/gameLogic';
+import { checkWin, speak, cancelSpeech, areCardsIdentical } from '../services/gameLogic';
 import { saveGameLog } from '../services/db';
 
 type ManagerScreen = 'setup' | 'game' | 'audit';
@@ -54,6 +49,8 @@ const ManagerView: React.FC<ManagerViewProps> = ({ manager, onLogout }) => {
     language: Language;
     prize: number;
     totalPlayers: number;
+    callingMode: 'AUTOMATIC' | 'MANUAL';
+    markingMode: 'AUTOMATIC' | 'MANUAL';
   }>({
     pattern: WINNING_PATTERNS[0],
     speed: 3000,
@@ -61,6 +58,8 @@ const ManagerView: React.FC<ManagerViewProps> = ({ manager, onLogout }) => {
     language: 'en',
     prize: 0,
     totalPlayers: 0,
+    callingMode: 'AUTOMATIC',
+    markingMode: 'AUTOMATIC',
   });
 
   const availableNumbers = useMemo(() => {
@@ -131,8 +130,27 @@ const ManagerView: React.FC<ManagerViewProps> = ({ manager, onLogout }) => {
           break;
         }
         case 'CARD_SELECTION': {
-          setPlayers(prev => prev.map(p => p.id === conn.peer ? { ...p, card: message.payload.card, markedCells: message.payload.markedCells } : p));
-          break;
+            const newCard = message.payload.card;
+            const isDuplicate = players.some(p => 
+                p.id !== conn.peer && 
+                p.card && p.card.length > 0 &&
+                areCardsIdentical(p.card, newCard)
+            );
+
+            if (isDuplicate) {
+                conn.send({
+                    type: 'CARD_REJECTED_DUPLICATE',
+                    payload: { message: 'This card is already in use. Please select or create a different one.' }
+                });
+            } else {
+                setPlayers(prev => prev.map(p => 
+                    p.id === conn.peer 
+                    ? { ...p, card: newCard, markedCells: message.payload.markedCells } 
+                    : p
+                ));
+                conn.send({ type: 'CARD_ACCEPTED', payload: {} });
+            }
+            break;
         }
         case 'BINGO': {
           if (bingoHandler.current) {
@@ -208,14 +226,34 @@ const ManagerView: React.FC<ManagerViewProps> = ({ manager, onLogout }) => {
   const setWinnerAndEndGame = useCallback(async (winningPlayer: Player, winningCells: [number, number][]) => {
       if (winner) return; // Prevent multiple winners
       
-      const finalWinner = { ...winningPlayer, isWinner: true, winningCells };
-      setWinner(finalWinner);
       setStatus(GameStatus.Over);
-
-      const finalPlayersState = players.map(p =>
-        p.id === finalWinner.id ? { ...p, isWinner: true, winningCells } : p
-      );
+      
+      const calledNumbersSet = new Set(calledNumbers);
+  
+      // Create the authoritative final state for all players based on all called numbers.
+      // This ensures the audit log and UI are correct, regardless of mode.
+      const finalPlayersState = players.map(p => {
+          if (p.disconnected) return p;
+  
+          const finalMarkedCells = Array.from({ length: 5 }, () => Array(5).fill(false));
+          p.card.forEach((row, rIdx) => {
+              row.forEach((cell, cIdx) => {
+                  if (cell === 'FREE' || (typeof cell === 'number' && calledNumbersSet.has(cell))) {
+                      finalMarkedCells[rIdx][cIdx] = true;
+                  }
+              });
+          });
+  
+          if (p.id === winningPlayer.id) {
+              return { ...p, markedCells: finalMarkedCells, isWinner: true, winningCells };
+          }
+          return { ...p, markedCells: finalMarkedCells };
+      });
+  
+      const finalWinner = finalPlayersState.find(p => p.id === winningPlayer.id)!;
+      
       setPlayers(finalPlayersState);
+      setWinner(finalWinner);
       
       const currentAuditLog = auditLog;
       if (currentAuditLog && gameSettings) {
@@ -237,7 +275,7 @@ const ManagerView: React.FC<ManagerViewProps> = ({ manager, onLogout }) => {
         await saveGameLog(finalLog); // Save to backend
         broadcast({ type: 'WINNER_ANNOUNCED', payload: { winner: finalWinner, prize: gameSettings.prize, auditLog: finalLog } });
       }
-  }, [winner, players, gameSettings, currentNumber, broadcast, auditLog]);
+  }, [winner, players, gameSettings, currentNumber, broadcast, auditLog, calledNumbers]);
 
 
   const callNextNumber = useCallback(async () => {
@@ -258,33 +296,35 @@ const ManagerView: React.FC<ManagerViewProps> = ({ manager, onLogout }) => {
       if (!isMuted && gameSettings) {
         await speak(nextNumber, gameSettings.language);
       }
-
-      const updatedPlayers = players.map(player => {
-          if (player.disconnected) return player;
-          const newMarked = player.markedCells.map(r => [...r]);
-          let changed = false;
-          player.card.forEach((row, rIdx) => {
-              row.forEach((cell, cIdx) => {
-                  if (cell === nextNumber && !newMarked[rIdx][cIdx]) {
-                      newMarked[rIdx][cIdx] = true;
-                      changed = true;
-                  }
+      
+      if (gameSettings?.markingMode === 'AUTOMATIC') {
+          const updatedPlayers = players.map(player => {
+              if (player.disconnected) return player;
+  
+              const newMarked = player.markedCells.map(r => [...r]);
+              let changed = false;
+              player.card.forEach((row, rIdx) => {
+                  row.forEach((cell, cIdx) => {
+                      if (cell === nextNumber && !newMarked[rIdx][cIdx]) {
+                          newMarked[rIdx][cIdx] = true;
+                          changed = true;
+                      }
+                  });
               });
+              return changed ? { ...player, markedCells: newMarked } : player;
           });
-          return changed ? { ...player, markedCells: newMarked } : player;
-      });
-      setPlayers(updatedPlayers);
-
-      // Host-side win checking after number call
-      for (const player of updatedPlayers) {
-          if (player.disconnected) continue;
-          const { win, winningCells } = checkWin(player.markedCells, gameSettings!.pattern);
-          if (win) {
-              setWinnerAndEndGame(player, winningCells);
-              break; 
+          setPlayers(updatedPlayers);
+  
+          // Host-side win checking after number call in AUTOMATIC marking mode only.
+          for (const player of updatedPlayers) {
+              if (player.disconnected) continue;
+              const { win, winningCells } = checkWin(player.markedCells, gameSettings!.pattern);
+              if (win) {
+                  setWinnerAndEndGame(player, winningCells);
+                  break; 
+              }
           }
       }
-
   }, [availableNumbers, isMuted, gameSettings, broadcast, calledNumbers, players, winner, setWinnerAndEndGame]);
   
   const callNextNumberRef = useRef(callNextNumber);
@@ -296,7 +336,7 @@ const ManagerView: React.FC<ManagerViewProps> = ({ manager, onLogout }) => {
         cancelSpeech();
         return;
     };
-    if (!gameSettings) return;
+    if (!gameSettings || gameSettings.callingMode !== 'AUTOMATIC') return;
     const gameInterval = setInterval(() => callNextNumberRef.current(), gameSettings.speed);
     return () => clearInterval(gameInterval);
   }, [status, gameSettings]);
@@ -305,15 +345,36 @@ const ManagerView: React.FC<ManagerViewProps> = ({ manager, onLogout }) => {
   useEffect(() => {
     bingoHandler.current = (playerId: string) => {
         if (winner) return; // Game already won
-        const winningPlayer = players.find(p => p.id === playerId);
-        if (winningPlayer && gameSettings) {
-            const { win, winningCells } = checkWin(winningPlayer.markedCells, gameSettings.pattern);
-            if (win) {
-                setWinnerAndEndGame(winningPlayer, winningCells);
+        const bingoingPlayer = players.find(p => p.id === playerId);
+        if (bingoingPlayer && gameSettings) {
+            
+            let winResult: { win: boolean; winningCells: [number, number][] };
+            
+            if (gameSettings.markingMode === 'MANUAL') {
+                // On-demand validation for manual mode: check card against all called numbers.
+                const calledNumbersSet = new Set(calledNumbers);
+                const tempMarkedCells = Array.from({ length: 5 }, () => Array(5).fill(false));
+                
+                bingoingPlayer.card.forEach((row, rIdx) => {
+                    row.forEach((cell, cIdx) => {
+                        if (cell === 'FREE' || (typeof cell === 'number' && calledNumbersSet.has(cell))) {
+                            tempMarkedCells[rIdx][cIdx] = true;
+                        }
+                    });
+                });
+                winResult = checkWin(tempMarkedCells, gameSettings.pattern);
+  
+            } else { // Automatic mode
+                // Use host-maintained marks for automatic mode.
+                winResult = checkWin(bingoingPlayer.markedCells, gameSettings.pattern);
+            }
+  
+            if (winResult.win) {
+                setWinnerAndEndGame(bingoingPlayer, winResult.winningCells);
             }
         }
     };
-  }, [winner, players, gameSettings, setWinnerAndEndGame]);
+  }, [winner, players, gameSettings, setWinnerAndEndGame, calledNumbers]);
 
 
   const handleGameStart = (settings: GameSettings, finalRemotePlayers: Player[]) => {
@@ -364,14 +425,34 @@ const ManagerView: React.FC<ManagerViewProps> = ({ manager, onLogout }) => {
   };
 
   const handleGameAction = () => {
-    if (status === GameStatus.Running) setStatus(GameStatus.Paused);
-    else if(status === GameStatus.Waiting || status === GameStatus.Paused) setStatus(GameStatus.Running);
-    else if (status === GameStatus.Over) handlePlayAgain();
+    if (status === GameStatus.Over) {
+        handlePlayAgain();
+        return;
+    }
+
+    if (gameSettings?.callingMode === 'MANUAL') {
+        if (status === GameStatus.Waiting || status === GameStatus.Paused) {
+            setStatus(GameStatus.Running);
+            // If it's the very first call, just start the game, don't call a number yet.
+            // Subsequent "Call Next" clicks will call numbers.
+            if (calledNumbers.length === 0) {
+                return;
+            }
+        }
+        callNextNumber();
+    } else { // Automatic mode
+        if (status === GameStatus.Running) {
+            setStatus(GameStatus.Paused);
+        } else if (status === GameStatus.Waiting || status === GameStatus.Paused) {
+            setStatus(GameStatus.Running);
+        }
+    }
   };
 
   const handleToggleMark = (playerId: string, row: number, col: number) => {
     const player = players.find(p => p.id === playerId);
     if (!player || !player.isHuman || status !== GameStatus.Running || winner) return;
+    if (gameSettings?.markingMode !== 'MANUAL') return;
 
     const cellValue = player.card[row][col];
     const calledSet = new Set(calledNumbers);
@@ -386,6 +467,36 @@ const ManagerView: React.FC<ManagerViewProps> = ({ manager, onLogout }) => {
       }));
     }
   };
+
+  const handleManagerBingoCheck = useCallback(() => {
+    if (winner || !gameSettings || gameSettings.markingMode !== 'MANUAL') return;
+
+    const managerPlayers = players.filter(p => p.isHuman && !p.disconnected);
+    const calledNumbersSet = new Set(calledNumbers);
+
+    for (const player of managerPlayers) {
+        // Create a temporary marked grid based on all numbers called so far
+        const tempMarkedCells = Array.from({ length: 5 }, () => Array(5).fill(false));
+        player.card.forEach((row, rIdx) => {
+            row.forEach((cell, cIdx) => {
+                if (cell === 'FREE' || (typeof cell === 'number' && calledNumbersSet.has(cell))) {
+                    tempMarkedCells[rIdx][cIdx] = true;
+                }
+            });
+        });
+        
+        const winResult = checkWin(tempMarkedCells, gameSettings.pattern);
+
+        if (winResult.win) {
+            // We found a winning card among the manager's cards!
+            setWinnerAndEndGame(player, winResult.winningCells);
+            // Important: break the loop once a winner is found
+            break; 
+        }
+    }
+    // If loop completes and no winner is found, do nothing. The user can just try again later.
+  }, [players, calledNumbers, gameSettings, winner, setWinnerAndEndGame]);
+
 
   const handleToggleCardVisibility = (playerId: string) => {
     setPlayers(prevPlayers =>
@@ -430,6 +541,8 @@ const ManagerView: React.FC<ManagerViewProps> = ({ manager, onLogout }) => {
                   onToggleMute={() => setIsMuted(p => !p)}
                   onToggleCardVisibility={handleToggleCardVisibility}
                   onToggleMark={handleToggleMark}
+                  onManagerBingoCheck={handleManagerBingoCheck}
+                  isManualMarking={gameSettings.markingMode === 'MANUAL'}
                 />;
       }
       setScreen('setup'); // Fallback

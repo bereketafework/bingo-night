@@ -1,5 +1,4 @@
 
-
 import { createClient } from '@supabase/supabase-js';
 import { User, GameAuditLog, FilterPeriod, UserRole, WinningPattern, AuditedPlayer, Language } from '../types';
 
@@ -14,13 +13,7 @@ if (!supabaseUrl || !supabaseKey) {
 
 
 // --- Database Type Definition for Supabase Client ---
-export type Json =
-  | string
-  | number
-  | boolean
-  | null
-  | { [key: string]: Json | undefined }
-  | Json[];
+export type Json = any;
 
 export interface Database {
   public: {
@@ -36,13 +29,14 @@ export interface Database {
           id?: string;
           name: string;
           password: string;
-          role: UserRole;
+          role: string;
         };
         Update: {
           name?: string;
           password?: string;
-          role?: UserRole;
+          role?: string;
         };
+        Relationships: [];
       };
       game_logs: {
         Row: {
@@ -80,6 +74,7 @@ export interface Database {
           called_numbers_sequence?: Json;
           winner?: Json | null;
         };
+        Relationships: [];
       };
       settings: {
         Row: {
@@ -97,6 +92,7 @@ export interface Database {
           value?: string;
           updated_at?: string;
         };
+        Relationships: [];
       };
     };
     Views: {
@@ -173,7 +169,7 @@ export const initializeDb = async () => {
             const newUsers = await Promise.all(usersToSeed.map(async (user) => ({
                 name: user.name,
                 password: await simpleHash(user.pass),
-                role: user.role as UserRole,
+                role: user.role,
             })));
             const { error: insertError } = await supabase.from('users').insert(newUsers);
             if (insertError) throw insertError;
@@ -273,10 +269,10 @@ export const saveGameLog = async (log: GameAuditLog): Promise<void> => {
         start_time: log.startTime,
         manager_id: log.managerId,
         manager_name: log.managerName,
-        settings: log.settings as Json,
-        players: log.players as Json,
-        called_numbers_sequence: log.calledNumbersSequence as Json,
-        winner: log.winner as Json,
+        settings: log.settings as unknown as Json,
+        players: log.players as unknown as Json,
+        called_numbers_sequence: log.calledNumbersSequence as unknown as Json,
+        winner: log.winner as unknown as Json,
     };
     const { error } = await supabase.from('game_logs').insert(logToSave);
     if (error) console.error('Error saving game log:', error);

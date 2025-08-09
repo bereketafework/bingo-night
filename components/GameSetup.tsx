@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { WinningPattern, GameSettings, BingoCard, Language, User, Player as RemotePlayer } from '../types';
 import { WINNING_PATTERNS_CONFIG, WINNING_PATTERNS } from '../constants';
-import { GamepadIcon, SpeedIcon, LogoutIcon, UsersIcon, StakeIcon, PrizeIcon, StarIcon, CheckCircleIcon, AuditLogIcon, ChevronDownIcon, ChevronUpIcon, LanguageIcon, UserCircleIcon, EyeIcon, EyeSlashIcon } from './icons';
+import { GamepadIcon, SpeedIcon, LogoutIcon, UsersIcon, StakeIcon, PrizeIcon, StarIcon, CheckCircleIcon, AuditLogIcon, ChevronDownIcon, ChevronUpIcon, LanguageIcon, UserCircleIcon, EyeIcon, EyeSlashIcon, PlayIcon } from './icons';
 import { generateBingoCard } from '../services/gameLogic';
 import { BINGO_LETTERS } from '../constants';
 import { getSetting, getEnabledWinningPatterns } from '../services/db';
@@ -22,6 +22,8 @@ interface GameSetupProps {
     language: Language;
     prize: number;
     totalPlayers: number;
+    callingMode: 'AUTOMATIC' | 'MANUAL';
+    markingMode: 'AUTOMATIC' | 'MANUAL';
   };
   onConfigChange: React.Dispatch<React.SetStateAction<any>>;
 }
@@ -66,7 +68,7 @@ const SelectableBingoCard: React.FC<{ card: BingoCard, isSelected: boolean, onCl
 
 
 const GameSetup: React.FC<GameSetupProps> = ({ manager, onStartGame, onLogout, onViewAudit, isHosting, onHostGame, gameId, remotePlayers, lobbyConfig, onConfigChange }) => {
-  const { pattern, speed, stake, language, prize, totalPlayers } = lobbyConfig;
+  const { pattern, speed, stake, language, prize, totalPlayers, callingMode, markingMode } = lobbyConfig;
 
   const [generatedCards, setGeneratedCards] = useState<BingoCard[]>([]);
   const [selectedCardIndices, setSelectedCardIndices] = useState<number[]>([]);
@@ -141,7 +143,9 @@ const GameSetup: React.FC<GameSetupProps> = ({ manager, onStartGame, onLogout, o
         stake,
         prize: possiblePrize,
         selectedCards,
-        language
+        language,
+        callingMode,
+        markingMode,
     }, remotePlayers);
   }
   
@@ -195,25 +199,58 @@ const GameSetup: React.FC<GameSetupProps> = ({ manager, onStartGame, onLogout, o
             </SetupCard>
             
             <SetupCard>
-                <label className="flex items-center gap-3 text-lg sm:text-xl font-semibold text-white mb-2 font-inter"><SpeedIcon className="w-6 h-6 text-amber-400" /> Calling Speed</label>
-                <div className="flex items-center justify-center gap-2 bg-gray-700/50 rounded-lg p-1">
-                {speedOptions.map(({label, value}) => (
-                    <button key={value} onClick={() => onConfigChange((c:any) => ({...c, speed: value}))} disabled={isHosting} className={`w-full py-2 text-center rounded-md font-semibold transition-colors text-sm ${speed === value ? 'bg-amber-500 text-gray-900' : 'bg-transparent text-gray-300 hover:bg-gray-600/50'} ${isHosting ? 'cursor-not-allowed opacity-70' : ''}`}>
-                    {label}
-                    </button>
-                ))}
-                </div>
-
-                <label htmlFor="stake-input" className="flex items-center gap-3 text-lg sm:text-xl font-semibold text-white pt-4 mb-2 font-inter"><StakeIcon className="w-6 h-6 text-amber-400" /> Stake per Card</label>
-                <div className="relative">
-                  <span className="absolute inset-y-0 left-0 flex items-center pl-4 text-gray-400 text-lg">$</span>
-                  <input id="stake-input" type="number" value={stake === 0 ? '' : stake} onChange={handleStakeChange} onBlur={handleStakeBlur} min="1" disabled={isHosting} className={`w-full pl-8 pr-4 py-3 text-lg text-white bg-gray-700/50 border-2 border-gray-600/50 rounded-lg focus:ring-4 focus:ring-amber-500/50 focus:border-amber-500 transition-all duration-300 placeholder-gray-500 ${isHosting ? 'cursor-not-allowed opacity-70' : ''}`} placeholder="Enter amount" />
+                 <label className="flex items-center gap-3 text-lg sm:text-xl font-semibold text-white mb-2 font-inter"><PlayIcon className="w-6 h-6 text-amber-400" /> Game Modes</label>
+                <div>
+                    <p className="text-gray-400 text-sm mb-1 font-semibold">Calling Mode</p>
+                    <div className="flex items-center justify-center gap-2 bg-gray-700/50 rounded-lg p-1">
+                        <button onClick={() => onConfigChange((c:any) => ({...c, callingMode: 'AUTOMATIC'}))} disabled={isHosting} className={`w-full py-2 text-center rounded-md font-semibold transition-colors text-sm ${callingMode === 'AUTOMATIC' ? 'bg-amber-500 text-gray-900' : 'bg-transparent text-gray-300 hover:bg-gray-600/50'} ${isHosting ? 'cursor-not-allowed opacity-70' : ''}`}>
+                            Automatic
+                        </button>
+                        <button onClick={() => onConfigChange((c:any) => ({...c, callingMode: 'MANUAL'}))} disabled={isHosting} className={`w-full py-2 text-center rounded-md font-semibold transition-colors text-sm ${callingMode === 'MANUAL' ? 'bg-amber-500 text-gray-900' : 'bg-transparent text-gray-300 hover:bg-gray-600/50'} ${isHosting ? 'cursor-not-allowed opacity-70' : ''}`}>
+                            Manual
+                        </button>
+                    </div>
                 </div>
                 
-                <label className="flex items-center gap-3 text-lg sm:text-xl font-semibold text-white pt-4 mb-2 font-inter"><LanguageIcon className="w-6 h-6 text-amber-400" /> Voice Language</label>
-                 <div className="flex items-center justify-center gap-2 bg-gray-700/50 rounded-lg p-1">
-                    <button onClick={() => onConfigChange((c:any) => ({...c, language: 'en'}))} disabled={isHosting} className={`w-full py-2 text-center rounded-md font-semibold transition-colors text-sm ${language === 'en' ? 'bg-amber-500 text-gray-900' : 'bg-transparent text-gray-300 hover:bg-gray-600/50'} ${isHosting ? 'cursor-not-allowed opacity-70' : ''}`}>English</button>
-                    <button onClick={() => onConfigChange((c:any) => ({...c, language: 'am'}))} disabled={isHosting} className={`w-full py-2 text-center rounded-md font-semibold transition-colors text-sm ${language === 'am' ? 'bg-amber-500 text-gray-900' : 'bg-transparent text-gray-300 hover:bg-gray-600/50'} ${isHosting ? 'cursor-not-allowed opacity-70' : ''}`}>Amharic</button>
+                <div className="pt-2">
+                    <p className="text-gray-400 text-sm mb-1 font-semibold">Marking Mode</p>
+                    <div className="flex items-center justify-center gap-2 bg-gray-700/50 rounded-lg p-1">
+                        <button onClick={() => onConfigChange((c:any) => ({...c, markingMode: 'AUTOMATIC'}))} disabled={isHosting} className={`w-full py-2 text-center rounded-md font-semibold transition-colors text-sm ${markingMode === 'AUTOMATIC' ? 'bg-amber-500 text-gray-900' : 'bg-transparent text-gray-300 hover:bg-gray-600/50'} ${isHosting ? 'cursor-not-allowed opacity-70' : ''}`}>
+                            Automatic
+                        </button>
+                        <button onClick={() => onConfigChange((c:any) => ({...c, markingMode: 'MANUAL'}))} disabled={isHosting} className={`w-full py-2 text-center rounded-md font-semibold transition-colors text-sm ${markingMode === 'MANUAL' ? 'bg-amber-500 text-gray-900' : 'bg-transparent text-gray-300 hover:bg-gray-600/50'} ${isHosting ? 'cursor-not-allowed opacity-70' : ''}`}>
+                            Manual
+                        </button>
+                    </div>
+                </div>
+                
+                {callingMode === 'AUTOMATIC' && (
+                    <div className="pt-2">
+                        <p className="text-gray-400 text-sm mb-1 font-semibold">Calling Speed</p>
+                        <div className="flex items-center justify-center gap-2 bg-gray-700/50 rounded-lg p-1">
+                        {speedOptions.map(({label, value}) => (
+                            <button key={value} onClick={() => onConfigChange((c:any) => ({...c, speed: value}))} disabled={isHosting} className={`w-full py-2 text-center rounded-md font-semibold transition-colors text-sm ${speed === value ? 'bg-amber-500 text-gray-900' : 'bg-transparent text-gray-300 hover:bg-gray-600/50'} ${isHosting ? 'cursor-not-allowed opacity-70' : ''}`}>
+                            {label}
+                            </button>
+                        ))}
+                        </div>
+                    </div>
+                )}
+
+                <div className="pt-2">
+                    <label htmlFor="stake-input" className="text-gray-400 text-sm mb-1 font-semibold">Stake per Card</label>
+                    <div className="relative">
+                      <span className="absolute inset-y-0 left-0 flex items-center pl-4 text-gray-400 text-lg">$</span>
+                      <input id="stake-input" type="number" value={stake === 0 ? '' : stake} onChange={handleStakeChange} onBlur={handleStakeBlur} min="1" disabled={isHosting} className={`w-full pl-8 pr-4 py-3 text-lg text-white bg-gray-700/50 border-2 border-gray-600/50 rounded-lg focus:ring-4 focus:ring-amber-500/50 focus:border-amber-500 transition-all duration-300 placeholder-gray-500 ${isHosting ? 'cursor-not-allowed opacity-70' : ''}`} placeholder="Enter amount" />
+                    </div>
+                </div>
+                
+                <div className="pt-2">
+                    <p className="text-gray-400 text-sm mb-1 font-semibold">Voice Language</p>
+                     <div className="flex items-center justify-center gap-2 bg-gray-700/50 rounded-lg p-1">
+                        <button onClick={() => onConfigChange((c:any) => ({...c, language: 'en'}))} disabled={isHosting} className={`w-full py-2 text-center rounded-md font-semibold transition-colors text-sm ${language === 'en' ? 'bg-amber-500 text-gray-900' : 'bg-transparent text-gray-300 hover:bg-gray-600/50'} ${isHosting ? 'cursor-not-allowed opacity-70' : ''}`}>English</button>
+                        <button onClick={() => onConfigChange((c:any) => ({...c, language: 'am'}))} disabled={isHosting} className={`w-full py-2 text-center rounded-md font-semibold transition-colors text-sm ${language === 'am' ? 'bg-amber-500 text-gray-900' : 'bg-transparent text-gray-300 hover:bg-gray-600/50'} ${isHosting ? 'cursor-not-allowed opacity-70' : ''}`}>Amharic</button>
+                    </div>
                 </div>
             </SetupCard>
         </div>

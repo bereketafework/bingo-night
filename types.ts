@@ -45,6 +45,8 @@ export interface GameSettings {
   prize: number; // Total prize
   selectedCards: SelectedCard[]; // Manager's own cards
   language: Language;
+  callingMode: 'AUTOMATIC' | 'MANUAL';
+  markingMode: 'AUTOMATIC' | 'MANUAL';
   totalPlayers?: number;
 }
 
@@ -103,6 +105,8 @@ export type NetworkMessageType =
   | 'LOBBY_UPDATE'        // Host -> All: Sends updated list of players
   | 'CONFIG_UPDATE'       // Host -> All: Sends updated game settings to lobby
   | 'CARD_SELECTION'      // Player -> Host: Player sends their chosen card
+  | 'CARD_ACCEPTED'       // Host -> Player: Confirms card is unique
+  | 'CARD_REJECTED_DUPLICATE' // Host -> Player: Notifies player their card is taken
   | 'GAME_START'          // Host -> All: Starts the game for everyone
   | 'NUMBER_CALL'         // Host -> All: Announces the next number
   | 'BINGO'               // Player -> Host: Player claims they have a bingo
