@@ -50,6 +50,19 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
     const stepRef = useRef(step);
     const { t, t_str } = useLanguage();
 
+    const [gameIdDigits, setGameIdDigits] = useState<string[]>(['', '', '', '']);
+    const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+    useEffect(() => {
+        const newHostId = gameIdDigits.join('');
+        if (newHostId.length <= 4) {
+            setHostId(newHostId);
+            if (newHostId.length === 4) {
+                setError('');
+            }
+        }
+    }, [gameIdDigits]);
+
     useEffect(() => {
         setStatusMessage(t_str('status_enter_game_id'));
     }, [t_str]);
@@ -218,132 +231,152 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
 
     const connectToHost = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!playerName.trim() || !hostId.trim()) {
-            setError(t_str('error_name_id_required'));
-            return;
-        }
-        setError('');
-        setStatusMessage(t_str('status_initializing_connection'));
 
-        let connectionTimeoutId: number;
+        const MAX_RETRIES = 2;
 
-        const cleanupAndReset = () => {
-            clearTimeout(connectionTimeoutId);
-            if (peerRef.current) {
-                peerRef.current.destroy();
-                peerRef.current = null;
+        const attempt = (retryCount: number) => {
+            if (!playerName.trim() || hostId.length !== 4) {
+                setError(t_str('error_name_id_required'));
+                return;
             }
-            connRef.current = null;
-        };
-
-        try {
-            if (peerRef.current) {
-                peerRef.current.destroy();
-            }
-
-            const peer = new Peer({
-                debug: 2,
-                config: {
-                    'iceServers': [
-                        { urls: 'stun:stun.l.google.com:19302' },
-                        { urls: 'stun:stun1.l.google.com:19302' },
-                        { 
-                            urls: "turn:openrelay.metered.ca:80", 
-                            username: "openrelayproject", 
-                            credential: "openrelayproject" 
-                        },
-                        { 
-                            urls: "turn:openrelay.metered.ca:443", 
-                            username: "openrelayproject", 
-                            credential: "openrelayproject" 
-                        },
-                    ]
+            setError('');
+            setStatusMessage(
+                retryCount > 0
+                ? t_str('status_retrying_connection', { count: retryCount, max: MAX_RETRIES })
+                : t_str('status_initializing_connection')
+            );
+    
+            let connectionTimeoutId: number;
+    
+            const cleanupAndReset = () => {
+                clearTimeout(connectionTimeoutId);
+                if (peerRef.current) {
+                    peerRef.current.destroy();
+                    peerRef.current = null;
                 }
-            });
-            peerRef.current = peer;
-
-            connectionTimeoutId = window.setTimeout(() => {
-                setError(t_str('error_connection_timed_out'));
-                setStatusMessage(t_str('status_enter_game_id'));
-                setStep('JOIN');
-                cleanupAndReset();
-            }, 15000); // 15-second timeout
-
-            peer.on('open', (id) => {
-                setStatusMessage(t_str('status_connecting_to_host', { hostId }));
-                
-                if (!/^\d{4}$/.test(hostId.trim())) {
-                    setError(t_str('error_invalid_game_id'));
+                if (connRef.current) {
+                    connRef.current.close();
+                    connRef.current = null;
+                }
+            };
+    
+            try {
+                if (peerRef.current) {
+                    peerRef.current.destroy();
+                }
+    
+                const peer = new Peer({
+                    debug: 2,
+                    config: {
+                        'iceServers': [
+                            { urls: 'stun:stun.l.google.com:19302' },
+                            { urls: 'stun:stun1.l.google.com:19302' },
+                            { 
+                                urls: "turn:openrelay.metered.ca:80", 
+                                username: "openrelayproject", 
+                                credential: "openrelayproject" 
+                            },
+                            { 
+                                urls: "turn:openrelay.metered.ca:443", 
+                                username: "openrelayproject", 
+                                credential: "openrelayproject" 
+                            },
+                        ]
+                    }
+                });
+                peerRef.current = peer;
+    
+                connectionTimeoutId = window.setTimeout(() => {
+                    setError(t_str('error_connection_timed_out'));
                     setStatusMessage(t_str('status_enter_game_id'));
                     setStep('JOIN');
                     cleanupAndReset();
-                    return;
-                }
-
-                const conn = peer.connect(hostId.trim(), { reliable: true });
-                connRef.current = conn;
-
-                conn.on('open', () => {
-                    clearTimeout(connectionTimeoutId); // Success! Clear the watchdog.
-                    setStatusMessage(t_str('status_connection_successful'));
-                    conn.send({ type: 'PLAYER_JOIN_REQUEST', payload: { name: playerName } });
-                });
-
-                conn.on('data', (data: any) => handleMessageRef.current?.(data as NetworkMessage));
-
-                conn.on('close', () => {
-                    if (stepRef.current === 'LOBBY' || stepRef.current === 'GAME') {
-                        setError(t_str('error_connection_lost'));
+                }, 15000); // 15-second timeout
+    
+                peer.on('open', (id) => {
+                    setStatusMessage(t_str('status_connecting_to_host', { hostId }));
+                    
+                    if (!/^\d{4}$/.test(hostId.trim())) {
+                        setError(t_str('error_invalid_game_id'));
                         setStatusMessage(t_str('status_enter_game_id'));
                         setStep('JOIN');
+                        cleanupAndReset();
+                        return;
                     }
+    
+                    const conn = peer.connect(hostId.trim(), { reliable: true });
+                    connRef.current = conn;
+    
+                    conn.on('open', () => {
+                        clearTimeout(connectionTimeoutId); // Success! Clear the watchdog.
+                        setStatusMessage(t_str('status_connection_successful'));
+                        conn.send({ type: 'PLAYER_JOIN_REQUEST', payload: { name: playerName } });
+                    });
+    
+                    conn.on('data', (data: any) => handleMessageRef.current?.(data as NetworkMessage));
+    
+                    conn.on('close', () => {
+                        if (stepRef.current === 'LOBBY' || stepRef.current === 'GAME') {
+                            setError(t_str('error_connection_lost'));
+                            setStatusMessage(t_str('status_enter_game_id'));
+                            setStep('JOIN');
+                        }
+                        cleanupAndReset();
+                    });
+    
+                    conn.on('error', (err) => {
+                         setError(t_str('error_connection_error', { message: err.message }));
+                         setStatusMessage(t_str('status_enter_game_id'));
+                         setStep('JOIN');
+                         cleanupAndReset();
+                    });
+                });
+    
+                peer.on('error', (err: any) => {
+                    if (err.type === 'peer-unavailable' && retryCount < MAX_RETRIES) {
+                        cleanupAndReset();
+                        setTimeout(() => attempt(retryCount + 1), 2000); // Wait 2s before retry
+                        return;
+                    }
+                    
+                    let userMessage = t_str('error_unexpected', { message: err.message });
+                     switch (err.type) {
+                        case 'browser-incompatible':
+                            userMessage = t_str('error_browser_incompatible');
+                            break;
+                        case 'disconnected':
+                            userMessage = t_str('error_disconnected_from_server');
+                            break;
+                        case 'network':
+                            userMessage = t_str('error_network');
+                            break;
+                        case 'peer-unavailable':
+                            userMessage = t_str('error_peer_unavailable');
+                            break;
+                        case 'server-error':
+                            userMessage = t_str('error_server_error');
+                            break;
+                        case 'webrtc':
+                            userMessage = t_str('error_webrtc_unsupported');
+                            break;
+                        default:
+                            userMessage = t_str('error_connection_failed', { message: err.message });
+                    }
+                    setError(userMessage);
+                    setStatusMessage(t_str('status_enter_game_id'));
+                    setStep('JOIN');
                     cleanupAndReset();
                 });
-
-                conn.on('error', (err) => {
-                     setError(t_str('error_connection_error', { message: err.message }));
-                     setStatusMessage(t_str('status_enter_game_id'));
-                     setStep('JOIN');
-                     cleanupAndReset();
-                });
-            });
-
-            peer.on('error', (err: any) => {
-                let userMessage = t_str('error_unexpected', { message: err.message });
-                 switch (err.type) {
-                    case 'browser-incompatible':
-                        userMessage = t_str('error_browser_incompatible');
-                        break;
-                    case 'disconnected':
-                        userMessage = t_str('error_disconnected_from_server');
-                        break;
-                    case 'network':
-                        userMessage = t_str('error_network');
-                        break;
-                    case 'peer-unavailable':
-                        userMessage = t_str('error_peer_unavailable');
-                        break;
-                    case 'server-error':
-                        userMessage = t_str('error_server_error');
-                        break;
-                    case 'webrtc':
-                        userMessage = t_str('error_webrtc_unsupported');
-                        break;
-                    default:
-                        userMessage = t_str('error_connection_failed', { message: err.message });
-                }
-                setError(userMessage);
+    
+            } catch (err: any) {
+                setError(t_str('error_unexpected_setup', { message: err.message }));
                 setStatusMessage(t_str('status_enter_game_id'));
                 setStep('JOIN');
                 cleanupAndReset();
-            });
+            }
+        };
 
-        } catch (err: any) {
-            setError(t_str('error_unexpected_setup', { message: err.message }));
-            setStatusMessage(t_str('status_enter_game_id'));
-            setStep('JOIN');
-            cleanupAndReset();
-        }
+        attempt(0);
     };
     
     const handleCardSelection = (card: BingoCard, index: number) => {
@@ -386,6 +419,7 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
         setHostId('');
         setError('');
         setStatusMessage(t_str('status_enter_game_id'));
+        setGameIdDigits(['', '', '', '']);
         
         setLobbyPlayers([]);
         setLobbySettings({});
@@ -430,17 +464,68 @@ const PlayerClient: React.FC<{onSwitchToManager: () => void}> = ({onSwitchToMana
     }, [winner, lobbySettings.markingMode]);
 
 
+    const handleDigitChange = (value: string, index: number) => {
+        const digit = value.slice(-1).replace(/[^0-9]/g, '');
+        const newDigits = [...gameIdDigits];
+        newDigits[index] = digit;
+        setGameIdDigits(newDigits);
+        if (digit && index < 3) {
+            inputRefs.current[index + 1]?.focus();
+        }
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, index: number) => {
+        if (e.key === 'Backspace' && !gameIdDigits[index] && index > 0) {
+            inputRefs.current[index - 1]?.focus();
+        }
+    };
+
+    const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+        const paste = e.clipboardData.getData('text').replace(/[^0-9]/g, '');
+        if (paste.length === 4) {
+            e.preventDefault();
+            const newDigits = paste.split('');
+            setGameIdDigits(newDigits);
+            inputRefs.current[3]?.focus();
+        }
+    };
+
+
     // --- RENDER LOGIC ---
     if (step === 'JOIN') return (
         <div className="relative w-full max-w-md mx-auto p-6 sm:p-8 bg-gray-900/80 border border-gray-700/50 rounded-2xl shadow-2xl animate-fade-in-down">
             <div className="absolute top-4 right-4"><LanguageSwitcher /></div>
             <h1 className="text-2xl sm:text-3xl font-bold text-center text-white mb-2 font-inter">{t('join_bingo_night')}</h1>
-            <p className="text-center text-gray-400 mb-6">{statusMessage}</p>
-            <form onSubmit={connectToHost} className="space-y-4">
-                 <input type="text" value={playerName} onChange={e => { setPlayerName(e.target.value); setError('')}} placeholder={t_str('your_name')} required className="w-full px-4 py-3 text-lg text-white bg-gray-800 border border-gray-600 rounded-lg focus:ring-4 focus:ring-amber-500/50 focus:border-amber-500"/>
-                 <input type="text" pattern="\\d*" maxLength={4} value={hostId} onChange={e => { setHostId(e.target.value); setError('')}} placeholder={t_str('game_id_placeholder')} required className="w-full px-4 py-3 text-lg text-white bg-gray-800 border border-gray-600 rounded-lg focus:ring-4 focus:ring-amber-500/50 focus:border-amber-500"/>
+            <p className="text-center text-gray-400 mb-6 min-h-[24px]">{statusMessage}</p>
+            <form onSubmit={connectToHost} className="space-y-6">
+                 <div>
+                    <label htmlFor="player-name" className="sr-only">{t('your_name')}</label>
+                    <input id="player-name" type="text" value={playerName} onChange={e => { setPlayerName(e.target.value); setError('')}} placeholder={t_str('your_name')} required className="w-full px-4 py-3 text-lg text-white bg-gray-800 border border-gray-600 rounded-lg focus:ring-4 focus:ring-amber-500/50 focus:border-amber-500"/>
+                 </div>
+                 <div>
+                    <label htmlFor="game-id-0" className="block text-center text-gray-400 mb-2">{t('game_id_placeholder')}</label>
+                     <div className="flex justify-center gap-2 sm:gap-4">
+                        {gameIdDigits.map((digit, index) => (
+                            <input
+                                key={index}
+                                id={`game-id-${index}`}
+                                ref={el => { inputRefs.current[index] = el; }}
+                                type="text"
+                                inputMode="numeric"
+                                value={digit}
+                                onChange={(e) => handleDigitChange(e.target.value, index)}
+                                onKeyDown={(e) => handleKeyDown(e, index)}
+                                onPaste={handlePaste}
+                                maxLength={1}
+                                className="w-14 h-14 sm:w-16 sm:h-16 text-center text-2xl sm:text-3xl font-bold text-white bg-gray-800 border-2 border-gray-600 rounded-lg focus:ring-4 focus:ring-amber-500/50 focus:border-amber-500 transition-all duration-300 placeholder-gray-500 font-roboto-mono"
+                                required
+                                aria-label={`Game ID digit ${index + 1}`}
+                            />
+                        ))}
+                    </div>
+                 </div>
                 {error && <p className="text-red-400 text-sm p-2 bg-red-500/10 rounded-md">{error}</p>}
-                <button type="submit" className="w-full py-3 text-lg font-semibold text-gray-900 bg-green-500 rounded-lg hover:bg-green-600 focus:outline-none focus:ring-4 focus:ring-green-500/50">{t('join_a_game')}</button>
+                <button type="submit" disabled={!playerName.trim() || hostId.length !== 4} className="w-full py-3 text-lg font-semibold text-gray-900 bg-green-500 rounded-lg hover:bg-green-600 focus:outline-none focus:ring-4 focus:ring-green-500/50 disabled:bg-gray-600 disabled:text-gray-400 disabled:cursor-not-allowed">{t('join_a_game')}</button>
             </form>
              <button onClick={onSwitchToManager} className="w-full mt-4 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">{t('switch_to_manager_login')}</button>
         </div>
