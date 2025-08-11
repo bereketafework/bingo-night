@@ -1,6 +1,7 @@
 
 import React, {useRef, useEffect} from 'react';
 import { getBingoLetter } from '../services/gameLogic';
+import { useLanguage } from '../contexts/LanguageContext';
 
 interface CalledNumbersProps {
   calledNumbers: number[];
@@ -9,6 +10,7 @@ interface CalledNumbersProps {
 
 const CalledNumbers: React.FC<CalledNumbersProps> = ({ calledNumbers, currentNumber }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const { t } = useLanguage();
 
   useEffect(() => {
     if (scrollContainerRef.current) {
@@ -20,7 +22,7 @@ const CalledNumbers: React.FC<CalledNumbersProps> = ({ calledNumbers, currentNum
   return (
     <div className="bg-gray-900/50 border border-gray-700/50 backdrop-blur-sm rounded-2xl shadow-lg p-4 flex flex-col h-[26rem] lg:h-full">
       <div className="flex-shrink-0 text-center mb-4">
-        <p className="text-gray-400 text-sm font-semibold uppercase tracking-wider">Current Number</p>
+        <p className="text-gray-400 text-sm font-semibold uppercase tracking-wider">{t('current_number')}</p>
         <div className="mt-1 w-28 h-28 sm:w-32 sm:h-32 xl:w-40 xl:h-40 3xl:w-48 3xl:h-48 mx-auto bg-gray-900/50 rounded-full flex items-center justify-center border-4 border-amber-500/50 shadow-2xl shadow-amber-500/10">
           {currentNumber ? (
             <div className="text-center leading-none">

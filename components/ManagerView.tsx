@@ -8,6 +8,7 @@ import Peer, { DataConnection } from 'peerjs';
 import { WINNING_PATTERNS } from '../constants';
 import { checkWin, speak, cancelSpeech, areCardsIdentical } from '../services/gameLogic';
 import { saveGameLog } from '../services/db';
+import { useLanguage } from '../contexts/LanguageContext';
 
 type ManagerScreen = 'setup' | 'game' | 'audit';
 
@@ -38,6 +39,7 @@ const ManagerView: React.FC<ManagerViewProps> = ({ manager, onLogout }) => {
   const [auditLog, setAuditLog] = useState<GameAuditLog | null>(null);
 
   const statusRef = useRef(status);
+  const { t } = useLanguage();
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
@@ -379,7 +381,7 @@ const ManagerView: React.FC<ManagerViewProps> = ({ manager, onLogout }) => {
 
   const handleGameStart = (settings: GameSettings, finalRemotePlayers: Player[]) => {
     const managerCards: Player[] = settings.selectedCards.map((sc, i) => ({
-      id: sc.id, name: `Manager Card #${i + 1}`, isHuman: true, card: sc.card,
+      id: sc.id, name: `${manager.name}'s ${t('card')} #${i + 1}`, isHuman: true, card: sc.card,
       isVisible: true, isWinner: false, markedCells: Array(5).fill(0).map(() => Array(5).fill(false)),
       winningCells: []
     }));
@@ -433,8 +435,6 @@ const ManagerView: React.FC<ManagerViewProps> = ({ manager, onLogout }) => {
     if (gameSettings?.callingMode === 'MANUAL') {
         if (status === GameStatus.Waiting || status === GameStatus.Paused) {
             setStatus(GameStatus.Running);
-            // If it's the very first call, just start the game, don't call a number yet.
-            // Subsequent "Call Next" clicks will call numbers.
             if (calledNumbers.length === 0) {
                 return;
             }
@@ -475,7 +475,6 @@ const ManagerView: React.FC<ManagerViewProps> = ({ manager, onLogout }) => {
     const calledNumbersSet = new Set(calledNumbers);
 
     for (const player of managerPlayers) {
-        // Create a temporary marked grid based on all numbers called so far
         const tempMarkedCells = Array.from({ length: 5 }, () => Array(5).fill(false));
         player.card.forEach((row, rIdx) => {
             row.forEach((cell, cIdx) => {
@@ -488,13 +487,10 @@ const ManagerView: React.FC<ManagerViewProps> = ({ manager, onLogout }) => {
         const winResult = checkWin(tempMarkedCells, gameSettings.pattern);
 
         if (winResult.win) {
-            // We found a winning card among the manager's cards!
             setWinnerAndEndGame(player, winResult.winningCells);
-            // Important: break the loop once a winner is found
             break; 
         }
     }
-    // If loop completes and no winner is found, do nothing. The user can just try again later.
   }, [players, calledNumbers, gameSettings, winner, setWinnerAndEndGame]);
 
 

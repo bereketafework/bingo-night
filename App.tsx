@@ -7,12 +7,14 @@ import PlayerClient from './components/PlayerClient';
 import SuperAdminPanel from './components/SuperAdminPanel';
 import { User } from './types';
 import { initializeDb } from './services/db';
+import { useLanguage } from './contexts/LanguageContext';
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isDbReady, setIsDbReady] = useState(false);
   const [dbError, setDbError] = useState<string | null>(null);
   const [appMode, setAppMode] = useState<'manager' | 'player'>('player');
+  const { t } = useLanguage();
 
   useEffect(() => {
     // Initialize DB once on app load.
@@ -24,10 +26,10 @@ const App: React.FC = () => {
         if (err.message?.startsWith("TABLE_MISSING")) {
           setDbError(err.message);
         } else {
-          setDbError(`Failed to initialize application data: ${err.message}. Please refresh the page to try again.`);
+          setDbError(t('app_error_connection', { message: err.message }) as string);
         }
       });
-  }, []);
+  }, [t]);
 
   const handleLogin = (user: User) => {
     setCurrentUser(user);
@@ -40,17 +42,18 @@ const App: React.FC = () => {
 
   const renderContent = () => {
     if (dbError) {
+      const isTableMissingError = dbError.startsWith("TABLE_MISSING");
       return (
         <div className="flex flex-col items-center justify-center min-h-screen text-center p-4">
-            <h2 className="text-2xl font-bold text-red-500">Application Error</h2>
-            <p className="mt-2 text-lg text-red-400 max-w-xl">{dbError}</p>
-            <p className="mt-4 text-gray-500">This might be a one-time issue. Please try refreshing the page. If the problem persists, ensure your database is set up correctly.</p>
+            <h2 className="text-2xl font-bold text-red-500">{t('app_error')}</h2>
+            <p className="mt-2 text-lg text-red-400 max-w-xl">{isTableMissingError ? t('app_error_table_missing') : dbError}</p>
+            <p className="mt-4 text-gray-500">{isTableMissingError ? t('app_error_table_missing_description') : t('app_error_description')}</p>
         </div>
       );
     }
 
     if (!isDbReady) {
-      return <div className="flex items-center justify-center min-h-screen text-lg text-gray-400">Initializing & connecting to database...</div>;
+      return <div className="flex items-center justify-center min-h-screen text-lg text-gray-400">{t('app_loading')}</div>;
     }
     
     // If a user is logged in, show their respective panel.

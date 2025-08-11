@@ -1,7 +1,9 @@
+
 import React from 'react';
 import { Player } from '../types';
 import { BINGO_LETTERS } from '../constants';
 import { StarIcon, EyeSlashIcon, UserCircleIcon } from './icons';
+import { useLanguage } from '../contexts/LanguageContext';
 
 interface BingoCardProps {
   player: Player;
@@ -12,9 +14,10 @@ interface BingoCardProps {
 
 const BingoCard: React.FC<BingoCardProps> = ({ player, onToggleMark, onToggleVisibility, isInteractive = true }) => {
   const { id, card, markedCells, winningCells, name, isHuman } = player;
+  const { t } = useLanguage();
   
   if (card.length === 0) {
-    return <div className="aspect-square w-full bg-gray-800/50 rounded-lg flex items-center justify-center"><p>Loading card...</p></div>;
+    return <div className="aspect-square w-full bg-gray-800/50 rounded-lg flex items-center justify-center"><p>{t('loading_card')}</p></div>;
   }
   
   const isWinningCell = (row: number, col: number) => {
@@ -40,12 +43,12 @@ const BingoCard: React.FC<BingoCardProps> = ({ player, onToggleMark, onToggleVis
       </div>
       <div className="grid grid-cols-5 gap-1">
         {BINGO_LETTERS.map(letter => (
-          <div key={letter} className="text-center text-lg sm:text-xl md:text-2xl xl:text-3xl font-bold text-amber-400 tracking-widest font-inter">
+          <div key={letter} className="text-center text-lg sm:text-xl md:text-2xl font-bold text-amber-400 tracking-widest font-inter">
             {letter}
           </div>
         ))}
       </div>
-      <div className="grid grid-cols-5 gap-1 sm:gap-2 xl:gap-3 mt-1">
+      <div className="grid grid-cols-5 gap-1 sm:gap-2 mt-1">
         {card.map((row, rIdx) => 
           row.map((cell, cIdx) => {
             const isMarked = markedCells[rIdx][cIdx];
@@ -67,7 +70,7 @@ const BingoCard: React.FC<BingoCardProps> = ({ player, onToggleMark, onToggleVis
             `;
 
             const numberClasses = `
-                font-roboto-mono text-base sm:text-lg md:text-xl xl:text-2xl 3xl:text-3xl
+                font-roboto-mono text-base sm:text-lg md:text-xl
                 ${isMarked ? 'opacity-50' : 'opacity-100'}
             `;
             
@@ -97,7 +100,7 @@ const BingoCard: React.FC<BingoCardProps> = ({ player, onToggleMark, onToggleVis
        {player.disconnected && (
         <div className="absolute inset-0 bg-black/70 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center z-10 animate-fade-in p-2">
             <UserCircleIcon className="w-10 h-10 lg:w-12 lg:h-12 text-gray-500" />
-            <p className="mt-2 font-bold text-base lg:text-lg text-gray-400 text-center">Disconnected</p>
+            <p className="mt-2 font-bold text-base lg:text-lg text-gray-400 text-center">{t('disconnected')}</p>
         </div>
       )}
     </div>

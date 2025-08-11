@@ -1,6 +1,8 @@
+
 import React, { useState, useCallback } from 'react';
 import { BingoCard } from '../types';
 import { BINGO_LETTERS, NUMBER_RANGES } from '../constants';
+import { useLanguage } from '../contexts/LanguageContext';
 
 interface CardCreatorProps {
   onSubmit: (card: BingoCard) => void;
@@ -13,14 +15,15 @@ const CardCreator: React.FC<CardCreatorProps> = ({ onSubmit }) => {
   const [inputs, setInputs] = useState<string[][]>(initialGrid());
   const [errors, setErrors] = useState<string[][]>(initialGrid());
   const [globalError, setGlobalError] = useState<string | null>(null);
+  const { t, t_str } = useLanguage();
 
   const validateCell = useCallback((value: string, col: number): string => {
     const num = parseInt(value, 10);
-    if (isNaN(num)) return 'NaN';
+    if (isNaN(num)) return t_str('validation_nan');
     const [min, max] = colRanges[col];
-    if (num < min || num > max) return `Out of range (${min}-${max})`;
+    if (num < min || num > max) return t_str('validation_out_of_range', { min, max });
     return '';
-  }, []);
+  }, [t_str]);
 
   const handleInputChange = (value: string, row: number, col: number) => {
     // Allow only numbers
@@ -41,8 +44,9 @@ const CardCreator: React.FC<CardCreatorProps> = ({ onSubmit }) => {
 
     const newErrors = initialGrid();
     let hasError = false;
+    let hasDuplicateError = false;
 
-    const allNumbers = new Set<number>();
+    const allNumbers = new Map<number, {row: number, col: number}[]>();
     const finalCard: (number | 'FREE')[][] = Array.from({ length: 5 }, () => Array(5));
 
     for (let r = 0; r < 5; r++) {
@@ -54,7 +58,7 @@ const CardCreator: React.FC<CardCreatorProps> = ({ onSubmit }) => {
 
         const value = inputs[r][c];
         if (!value) {
-            newErrors[r][c] = 'Required';
+            newErrors[r][c] = t_str('validation_required');
             hasError = true;
             continue;
         }
@@ -67,20 +71,32 @@ const CardCreator: React.FC<CardCreatorProps> = ({ onSubmit }) => {
         }
 
         const num = parseInt(value, 10);
-        if (allNumbers.has(num)) {
-            newErrors[r][c] = 'Duplicate';
-            hasError = true;
-        } else {
-            allNumbers.add(num);
-            finalCard[r][c] = num;
+        if (!allNumbers.has(num)) {
+            allNumbers.set(num, []);
         }
+        allNumbers.get(num)!.push({row: r, col: c});
+        finalCard[r][c] = num;
       }
     }
+
+    allNumbers.forEach((positions, num) => {
+        if (positions.length > 1) {
+            hasError = true;
+            if (!hasDuplicateError) hasDuplicateError = true;
+            positions.forEach(pos => {
+                newErrors[pos.row][pos.col] = t_str('validation_duplicate');
+            });
+        }
+    });
     
     setErrors(newErrors);
 
     if (hasError) {
-        setGlobalError('Please fix the errors on your card.');
+        if (hasDuplicateError) {
+            setGlobalError(t_str('validation_fix_duplicates'));
+        } else {
+            setGlobalError(t_str('validation_fix_errors'));
+        }
         return;
     }
 
@@ -89,8 +105,8 @@ const CardCreator: React.FC<CardCreatorProps> = ({ onSubmit }) => {
 
   return (
     <div className="bg-gray-800/50 p-4 rounded-xl border border-gray-700/50 animate-fade-in-down">
-        <h2 className="text-xl sm:text-2xl font-bold text-white mb-2 text-center">Create Your Own Card</h2>
-        <p className="text-gray-400 text-center mb-4 text-sm sm:text-base">Enter a valid number in each cell according to its column.</p>
+        <h2 className="text-xl sm:text-2xl font-bold text-white mb-2 text-center">{t('create_your_own_card_title')}</h2>
+        <p className="text-gray-400 text-center mb-4 text-sm sm:text-base">{t('create_card_description')}</p>
         <form onSubmit={handleSubmit}>
             <div className="grid grid-cols-5 gap-1 sm:gap-2">
                 {BINGO_LETTERS.map((letter, colIndex) => (
@@ -105,8 +121,8 @@ const CardCreator: React.FC<CardCreatorProps> = ({ onSubmit }) => {
                     row.map((cellValue, cIdx) => {
                         if (rIdx === 2 && cIdx === 2) {
                             return (
-                                <div key={`${rIdx}-${cIdx}`} className="aspect-square flex items-center justify-center bg-gray-700/50 rounded-md text-yellow-400 font-bold">
-                                    FREE
+                                <div key={`${rIdx}-${cIdx}`} className="aspect-square flex items-center justify-center bg-gray-700/50 rounded-md text-yellow-400 font-bold text-sm">
+                                    {t('free_space')}
                                 </div>
                             );
                         }
@@ -128,12 +144,12 @@ const CardCreator: React.FC<CardCreatorProps> = ({ onSubmit }) => {
                     })
                 )}
             </div>
-            {globalError && <p className="text-red-400 text-center mt-3 text-sm">{globalError}</p>}
+            {globalError && <p className="text-red-400 text-center mt-3 text-sm p-2 bg-red-900/20 rounded-md">{globalError}</p>}
             <button
                 type="submit"
                 className="w-full mt-4 py-3 text-lg font-semibold text-gray-900 bg-green-500 rounded-lg hover:bg-green-600 focus:outline-none focus:ring-4 focus:ring-green-500/50 transition-all duration-300 disabled:bg-gray-600 disabled:cursor-not-allowed"
             >
-                Submit My Card
+                {t('submit_my_card')}
             </button>
         </form>
     </div>
